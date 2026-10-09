@@ -6,8 +6,8 @@ import { fixturePdf } from "./pdf";
 import { useReaderStore } from "../../src/state/useReaderStore";
 import { extractPageContent } from "../../src/pdf/extract";
 
-const settings = { chatBaseUrl: "http://localhost:1234/v1", chatModel: "test",
-  embedBackend: "local", embedModel: "bge-small-en-v1.5", topK: 6, persona: "Explain simply", configured: true, logLevel: "info" };
+const settings = { chatBackend: "openai", codexPath: "codex", codexModel: "", chatBaseUrl: "http://localhost:1234/v1", chatModel: "test",
+  embedBackend: "local", embedModel: "bge-small-en-v1.5", topK: 6, persona: "Explain simply", responseLanguage: "auto", configured: true, logLevel: "info" };
 let asked = 0;
 mockIPC(async (cmd, args: any) => {
   switch (cmd) {
@@ -25,7 +25,9 @@ mockIPC(async (cmd, args: any) => {
       const extraction = await extractPageContent(await useReaderStore.getState().pdfDoc!.getPage(page), page);
       const source = { idx: 1, chunk_id: `source-${page}`, page, snippet: extraction.spans[0].text, quads: extraction.spans[0].quads };
       args.channel.onmessage({ kind: "sources", data: [source] });
-      args.channel.onmessage({ kind: "token", data: `Answer ${asked} [1].` });
+      args.channel.onmessage({ kind: "token", data: String.raw`The result is \(E=mc^2\) [1].
+
+\[\int_0^1 x\,dx = \frac{1}{2}\]` });
       args.channel.onmessage({ kind: "done" });
       return;
     }

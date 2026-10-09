@@ -1,7 +1,10 @@
 import { memo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { sanitizeMarkdown } from "../utils/sanitizeMarkdown";
+import remarkMath from "remark-math";
+import rehypeKatex from "rehype-katex";
+import { normalizeMathDelimiters } from "../utils/mathMarkdown";
+import "katex/dist/katex.min.css";
 
 interface MarkdownRendererProps {
   content: string;
@@ -10,10 +13,13 @@ interface MarkdownRendererProps {
 const MarkdownRenderer = memo(function MarkdownRenderer({
   content,
 }: MarkdownRendererProps) {
-  const cleaned = sanitizeMarkdown(content);
+  const cleaned = normalizeMathDelimiters(content);
   return (
     <div className="ai-markdown">
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>{cleaned}</ReactMarkdown>
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm, [remarkMath, { singleDollarTextMath: false }]]}
+        rehypePlugins={[[rehypeKatex, { strict: "ignore", trust: false }]]}
+      >{cleaned}</ReactMarkdown>
     </div>
   );
 });

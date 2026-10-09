@@ -10,6 +10,12 @@ pub struct Db {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Settings {
+    #[serde(default = "default_chat_backend")]
+    pub chat_backend: String,
+    #[serde(default = "default_codex_path")]
+    pub codex_path: String,
+    #[serde(default)]
+    pub codex_model: String,
     pub chat_base_url: String,
     pub chat_model: String,
     pub embed_backend: String,
@@ -18,13 +24,28 @@ pub struct Settings {
     pub embed_model_remote: Option<String>,
     pub top_k: i64,
     pub persona: String,
+    #[serde(default = "default_response_language")]
+    pub response_language: String,
     pub configured: bool,
     pub log_level: String,
+}
+
+fn default_chat_backend() -> String {
+    "openai".to_string()
+}
+fn default_codex_path() -> String {
+    "codex".to_string()
+}
+fn default_response_language() -> String {
+    "auto".to_string()
 }
 
 impl Default for Settings {
     fn default() -> Self {
         Self {
+            chat_backend: default_chat_backend(),
+            codex_path: default_codex_path(),
+            codex_model: String::new(),
             chat_base_url: "https://api.openai.com/v1".to_string(),
             chat_model: "gpt-4o-mini".to_string(),
             embed_backend: "local".to_string(),
@@ -33,6 +54,7 @@ impl Default for Settings {
             embed_model_remote: None,
             top_k: 6,
             persona: "Explain simply".to_string(),
+            response_language: default_response_language(),
             configured: false,
             log_level: "info".to_string(),
         }
@@ -146,6 +168,9 @@ impl Db {
         for row in rows {
             let (key, value) = row?;
             match key.as_str() {
+                "chat_backend" => settings.chat_backend = value,
+                "codex_path" => settings.codex_path = value,
+                "codex_model" => settings.codex_model = value,
                 "chat_base_url" => settings.chat_base_url = value,
                 "chat_model" => settings.chat_model = value,
                 "embed_backend" => settings.embed_backend = value,
@@ -154,6 +179,7 @@ impl Db {
                 "embed_model_remote" => settings.embed_model_remote = Some(value),
                 "top_k" => settings.top_k = value.parse().unwrap_or(6),
                 "persona" => settings.persona = value,
+                "response_language" => settings.response_language = value,
                 "configured" => settings.configured = value == "true",
                 "log_level" => settings.log_level = value,
                 _ => {}
@@ -167,12 +193,16 @@ impl Db {
         let top_k_str = settings.top_k.to_string();
         let configured_str = if settings.configured { "true" } else { "false" };
         let pairs = [
+            ("chat_backend", settings.chat_backend.as_str()),
+            ("codex_path", settings.codex_path.as_str()),
+            ("codex_model", settings.codex_model.as_str()),
             ("chat_base_url", settings.chat_base_url.as_str()),
             ("chat_model", settings.chat_model.as_str()),
             ("embed_backend", settings.embed_backend.as_str()),
             ("embed_model", settings.embed_model.as_str()),
             ("top_k", top_k_str.as_str()),
             ("persona", settings.persona.as_str()),
+            ("response_language", settings.response_language.as_str()),
             ("configured", configured_str),
             ("log_level", settings.log_level.as_str()),
         ];
@@ -250,8 +280,14 @@ impl Db {
 
     pub fn delete_document(&self, file_hash: &str) -> anyhow::Result<()> {
         let conn = self.conn.lock().unwrap();
-        conn.execute("DELETE FROM chunks WHERE file_hash = ?1", params![file_hash])?;
-        conn.execute("DELETE FROM documents WHERE file_hash = ?1", params![file_hash])?;
+        conn.execute(
+            "DELETE FROM chunks WHERE file_hash = ?1",
+            params![file_hash],
+        )?;
+        conn.execute(
+            "DELETE FROM documents WHERE file_hash = ?1",
+            params![file_hash],
+        )?;
         Ok(())
     }
 }
@@ -275,6 +311,28 @@ mod tests {
         };
         db.migrate().unwrap();
         db
+    }
+
+    #[test]
+    fn old_settings_load_with_api_backend_and_codex_settings_persist() {
+        let mut legacy = serde_json::to_value(Settings::default()).unwrap();
+        for key in ["chatBackend", "codexPath", "codexModel", "responseLanguage"] {
+            legacy.as_object_mut().unwrap().remove(key);
+        }
+        let mut settings: Settings = serde_json::from_value(legacy).unwrap();
+        assert_eq!(settings.chat_backend, "openai");
+        assert_eq!(settings.response_language, "auto");
+        settings.chat_backend = "codex".into();
+        settings.codex_path = "C:/CLI with spaces/codex.exe".into();
+        settings.codex_model = "custom-model".into();
+        settings.response_language = "ja".into();
+        let db = db();
+        db.set_settings(&settings).unwrap();
+        let loaded = db.get_settings().unwrap();
+        assert_eq!(loaded.chat_backend, "codex");
+        assert_eq!(loaded.codex_path, settings.codex_path);
+        assert_eq!(loaded.codex_model, settings.codex_model);
+        assert_eq!(loaded.response_language, "ja");
     }
 
     #[test]

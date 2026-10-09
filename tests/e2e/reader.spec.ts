@@ -4,7 +4,6 @@ test.beforeEach(async ({ page }) => {
   await page.goto("/tests/fixtures/index.html");
   await page.getByRole("button", { name: "Open PDF", exact: true }).click();
   await expect(page.locator("[data-page]")).toHaveCount(12);
-  await page.getByTitle("Fit width", { exact: true }).click();
   await expect(page.locator('[data-page="1"] .textLayer')).toContainText("Page 1:");
 });
 
@@ -34,14 +33,14 @@ test("wheel scrolling stays put; page jumps, zoom and resizing render correctly"
   expect(errors).toEqual([]);
 });
 
-test("earlier citations retain their own page", async ({ page }) => {
+test("math renders and earlier citations retain their own page", async ({ page }) => {
   const input = page.getByPlaceholder("Ask anything...");
   await input.fill("First question");
   await input.press("Enter");
-  await expect(page.getByText("Answer 1 [1].", { exact: false })).toBeVisible();
+  await expect(page.locator(".katex-display")).toHaveCount(1);
   await input.fill("Follow up");
   await input.press("Enter");
-  await expect(page.getByText("Answer 2 [1].", { exact: false })).toBeVisible();
+  await expect(page.locator(".katex-display")).toHaveCount(2);
   await page.getByRole("button", { name: "p.2", exact: true }).click();
   await expect(page.getByText("2 / 12", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "p.8", exact: true }).click();
@@ -49,7 +48,7 @@ test("earlier citations retain their own page", async ({ page }) => {
   await expect(page.locator('[data-page="8"] .textLayer')).toContainText("Page 8:");
   const highlightTop = await page.locator('[data-page="8"] [style*="flash-amber"]').evaluate((el) => (el as HTMLElement).offsetTop);
   expect(highlightTop).toBeLessThan(130);
-  await page.screenshot({ path: "test-results/reader-citations.png" });
+  await page.screenshot({ path: "test-results/reader-math.png" });
 });
 
 test("outline toggling keeps the reading position and panels within the window", async ({ page }) => {
@@ -62,7 +61,6 @@ test("outline toggling keeps the reading position and panels within the window",
   });
   for (const fit of [false, true]) {
     if (!fit) await page.getByTitle("Zoom in", { exact: true }).click();
-    else await page.getByTitle("Fit width", { exact: true }).click();
     await expect.poll(async () => (await position()).width).toBeGreaterThan(0);
     await page.waitForTimeout(200);
     await reader.evaluate((el) => { el.scrollTop = 220; el.scrollLeft = 120; });
@@ -80,8 +78,8 @@ test("outline toggling keeps the reading position and panels within the window",
     await page.getByTitle("Toggle outline", { exact: true }).click();
     await expect.poll(async () => (await position()).width).toBe(before.width);
     await expect.poll(async () => Math.abs((await position()).fraction - before.fraction)).toBeLessThan(0.003);
-    await expect(page.getByTitle("Fit width", { exact: true })).toHaveAttribute("aria-pressed", String(fit));
-    if (fit) await expect.poll(() => reader.evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
+    await expect(page.getByTitle("Fit width", { exact: true })).toHaveAttribute("aria-pressed", "true");
+    await expect.poll(() => reader.evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
     const group = await page.locator('[data-panel-group]').boundingBox();
     expect(group!.x + group!.width).toBeLessThanOrEqual(1224);
     const send = await page.getByRole("button", { name: "Send", exact: true }).boundingBox();
@@ -90,10 +88,126 @@ test("outline toggling keeps the reading position and panels within the window",
   await page.screenshot({ path: "test-results/reader-outline.png" });
 });
 
+test("dragging the split resizes both panes and automatically fits the full PDF width", async ({ page }) => {
+  const reader = page.getByLabel("PDF pages");
+  const handle = page.getByRole("separator", { name: "Resize PDF and Ask Komodo" });
+  const canvas = page.locator('[data-page="1"] canvas');
+  const fraction = () => reader.evaluate((el) => {
+    const first = el.querySelector<HTMLElement>('[data-page="1"]')!;
+    return (el.scrollTop + 16 - first.offsetTop) / first.offsetHeight;
+  });
+  await expect(page.getByTitle("Fit width", { exact: true })).toHaveAttribute("aria-pressed", "true");
+  expect(await reader.evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
+  await reader.evaluate((el) => { el.scrollTop = 180; });
+  await page.waitForTimeout(100);
+  const before = await fraction();
+  const fittedWidth = (await canvas.boundingBox())!.width;
+  await page.getByTitle("Zoom in", { exact: true }).click();
+  await expect.poll(async () => (await canvas.boundingBox())!.width / fittedWidth).toBeCloseTo(1.2, 2);
+  for (const delta of [-150, 240]) {
+    const start = (await handle.boundingBox())!;
+    const oldWidth = await reader.evaluate((el) => el.clientWidth);
+    await page.mouse.move(start.x + start.width / 2, start.y + start.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(start.x + start.width / 2 + delta, start.y + start.height / 2, { steps: 10 });
+    await page.mouse.up();
+    await expect.poll(() => reader.evaluate((el) => el.clientWidth)).not.toBe(oldWidth);
+    await expect(page.getByTitle("Fit width", { exact: true })).toHaveAttribute("aria-pressed", "true");
+    await expect.poll(() => reader.evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
+    await expect.poll(async () => Math.abs(await fraction() - before)).toBeLessThan(0.003);
+    const chat = await page.getByPlaceholder("Ask anything...").boundingBox();
+    const readerBox = await reader.boundingBox();
+    expect(chat!.x).toBeGreaterThan(readerBox!.x + readerBox!.width);
+  }
+  await page.screenshot({ path: "test-results/reader-split-fit.png" });
+});
+
 test("IME confirmation does not send a question", async ({ page }) => {
   const input = page.getByPlaceholder("Ask anything...");
   await input.fill("日本語の入力");
   await input.dispatchEvent("keydown", { key: "Enter", code: "Enter", isComposing: true });
   await expect(page.locator(".ai-markdown")).toHaveCount(0);
   await expect(input).toHaveValue("日本語の入力");
+});
+
+test("Ask Komodo closes and restores its width, conversation, draft and PDF reading position", async ({ page }) => {
+  const reader = page.getByLabel("PDF pages");
+  const input = page.getByPlaceholder("Ask anything...");
+  const handle = page.getByRole("separator", { name: "Resize PDF and Ask Komodo" });
+  await input.fill("Explain this page");
+  await input.press("Enter");
+  await expect(page.locator(".katex-display")).toHaveCount(1);
+  await input.fill("まだ送信していない質問");
+  await handle.focus();
+  await handle.press("ArrowLeft");
+  await reader.evaluate((el) => { el.scrollTop = 180; });
+  await page.waitForTimeout(100);
+  const oldWidth = await reader.evaluate((el) => el.clientWidth);
+  const fraction = () => reader.evaluate((el) => {
+    const first = el.querySelector<HTMLElement>('[data-page="1"]')!;
+    return (el.scrollTop + 16 - first.offsetTop) / first.offsetHeight;
+  });
+  const before = await fraction();
+  await page.getByRole("button", { name: "Close Ask Komodo", exact: true }).click();
+  await expect(input).not.toBeVisible();
+  await expect(handle).not.toBeVisible();
+  await expect.poll(() => reader.evaluate((el) => el.clientWidth)).toBeGreaterThan(oldWidth);
+  await expect.poll(() => reader.evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
+  await expect.poll(async () => Math.abs(await fraction() - before)).toBeLessThan(0.003);
+  const groupBox = await page.locator('[data-panel-group]').boundingBox();
+  const readerBox = await reader.boundingBox();
+  expect(readerBox!.width).toBeCloseTo(groupBox!.width, 0);
+  await page.screenshot({ path: "test-results/reader-ai-closed.png" });
+  await page.getByTitle("Show Ask Komodo", { exact: true }).click();
+  await expect(input).toHaveValue("まだ送信していない質問");
+  await expect(page.locator(".katex-display")).toBeVisible();
+  await expect(handle).toBeVisible();
+  await expect.poll(() => reader.evaluate((el) => el.clientWidth)).toBe(oldWidth);
+  await expect.poll(async () => Math.abs(await fraction() - before)).toBeLessThan(0.003);
+  await page.getByTitle("Hide Ask Komodo", { exact: true }).click();
+  await expect(input).not.toBeVisible();
+  await page.getByTitle("Show Ask Komodo", { exact: true }).click();
+  await expect(input).toHaveValue("まだ送信していない質問");
+});
+
+test("Codex settings hide the chat key and survive reopening", async ({ page }) => {
+  await page.getByTitle("Settings", { exact: true }).click();
+  await page.getByLabel("Provider", { exact: true }).selectOption("codex");
+  await page.getByLabel("Codex model (optional)", { exact: true }).fill("my-codex-model");
+  await expect(page.locator('input[type="password"]')).toHaveCount(0);
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await page.getByTitle("Settings", { exact: true }).click();
+  await expect(page.getByLabel("Provider", { exact: true })).toHaveValue("codex");
+  await expect(page.getByLabel("Codex model (optional)", { exact: true })).toHaveValue("my-codex-model");
+});
+
+test("Japanese selection questions use the saved response language", async ({ page }) => {
+  await page.getByTitle("Settings", { exact: true }).click();
+  await page.getByLabel("Response language / 回答言語", { exact: true }).selectOption("ja");
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await page.getByTitle("Settings", { exact: true }).click();
+  await expect(page.getByLabel("Response language / 回答言語", { exact: true })).toHaveValue("ja");
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  const text = page.locator('[data-page="1"] .textLayer span').first();
+  const selectText = async () => {
+    await text.evaluate((element) => {
+      const range = document.createRange();
+      range.selectNodeContents(element);
+      const selection = window.getSelection()!;
+      selection.removeAllRanges();
+      selection.addRange(range);
+    });
+    await text.dispatchEvent("mouseup");
+  };
+  await selectText();
+  await page.getByRole("button", { name: "選択箇所について質問", exact: true }).click();
+  await expect(page.getByText('次の選択箇所を日本語でわかりやすく説明してください：', { exact: false })).toBeVisible();
+  await expect(page.locator(".katex-display")).toHaveCount(1);
+  await page.getByTitle("Settings", { exact: true }).click();
+  await page.getByLabel("Response language / 回答言語", { exact: true }).selectOption("en");
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await selectText();
+  await page.getByRole("button", { name: "Ask about this selection", exact: true }).click();
+  await expect(page.getByText("Explain this selected passage in English:", { exact: false })).toBeVisible();
+  await expect(page.locator(".katex-display")).toHaveCount(2);
 });

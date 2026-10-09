@@ -97,6 +97,27 @@ textarea:focus-visible {
   background-color: var(--accent-press);
 }
 
+.resize-handle {
+  width: 10px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-raised);
+  border-left: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+  cursor: col-resize;
+  transition: background-color 0.15s;
+}
+
+.resize-handle > span {
+  width: 3px;
+  height: 32px;
+  border-radius: 2px;
+  background: var(--text-muted);
+  pointer-events: none;
+}
+
 .resize-handle:hover {
   background-color: var(--accent-hover) !important;
 }
@@ -265,6 +286,13 @@ textarea:focus-visible {
 
 .ai-markdown del {
   color: var(--text-muted);
+}
+
+.ai-markdown .katex-display {
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 4px 0;
 }
 
 .pdf-text-layer {

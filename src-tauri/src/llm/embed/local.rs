@@ -1,7 +1,9 @@
 use crate::llm::{EmbedInput, EmbeddingProvider, LlmError};
 use crate::models::{ModelSpec, PoolingStrategy};
 use async_trait::async_trait;
-use fastembed::{InitOptionsUserDefined, Pooling, TextEmbedding, TokenizerFiles, UserDefinedEmbeddingModel};
+use fastembed::{
+    InitOptionsUserDefined, Pooling, TextEmbedding, TokenizerFiles, UserDefinedEmbeddingModel,
+};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -50,7 +52,11 @@ mod tests {
 
 impl LocalEmbedder {
     pub fn new(model_dir: PathBuf, spec: &ModelSpec) -> anyhow::Result<Self> {
-        log::debug!("LocalEmbedder::new loading model '{}' from {:?}", spec.id, model_dir);
+        log::debug!(
+            "LocalEmbedder::new loading model '{}' from {:?}",
+            spec.id,
+            model_dir
+        );
 
         // Verify all required files exist
         let required = [
@@ -92,14 +98,12 @@ impl LocalEmbedder {
             PoolingStrategy::Cls => Pooling::Cls,
         };
 
-        let user_model = UserDefinedEmbeddingModel::new(onnx_file, tokenizer_files)
-            .with_pooling(pooling);
+        let user_model =
+            UserDefinedEmbeddingModel::new(onnx_file, tokenizer_files).with_pooling(pooling);
 
         log::debug!("LocalEmbedder initializing TextEmbedding...");
-        let model = TextEmbedding::try_new_from_user_defined(
-            user_model,
-            InitOptionsUserDefined::new(),
-        )?;
+        let model =
+            TextEmbedding::try_new_from_user_defined(user_model, InitOptionsUserDefined::new())?;
         log::info!(
             "LocalEmbedder model '{}' loaded in {:?}",
             spec.id,
@@ -151,10 +155,8 @@ impl EmbeddingProvider for LocalEmbedder {
 
         let embeddings = tokio::task::spawn_blocking(move || {
             let mut all = Vec::with_capacity(total);
-            let chunks: Vec<Vec<String>> = prefixed
-                .chunks(BATCH_SIZE)
-                .map(|c| c.to_vec())
-                .collect();
+            let chunks: Vec<Vec<String>> =
+                prefixed.chunks(BATCH_SIZE).map(|c| c.to_vec()).collect();
             let num_chunks = chunks.len();
 
             log::debug!(

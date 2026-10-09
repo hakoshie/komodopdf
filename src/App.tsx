@@ -1,5 +1,5 @@
-import { useEffect } from "react";
-import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
+import { useEffect, useRef } from "react";
+import { Panel, PanelGroup, PanelResizeHandle, type ImperativePanelHandle } from "react-resizable-panels";
 import { invoke } from "@tauri-apps/api/core";
 import { Channel } from "@tauri-apps/api/core";
 import Toolbar from "./components/Toolbar";
@@ -14,7 +14,14 @@ import { extractAllPages } from "./pdf/extract";
 import "./styles/theme.css";
 
 function App() {
-  const { activeModal, fileHash, pdfDoc, setIndexState, setIndexProgress } = useReaderStore();
+  const { activeModal, fileHash, pdfDoc, aiOpen, setAiOpen, setIndexState, setIndexProgress } = useReaderStore();
+  const aiPanelRef = useRef<ImperativePanelHandle>(null);
+
+  useEffect(() => {
+    const panel = aiPanelRef.current;
+    if (aiOpen) panel?.expand();
+    else panel?.collapse();
+  }, [aiOpen]);
 
   // Handle indexing when modal is "indexing"
   useEffect(() => {
@@ -95,14 +102,16 @@ function App() {
           </Panel>
           <PanelResizeHandle
             className="resize-handle"
-            style={{
-              width: 4,
-              backgroundColor: "var(--border)",
-              transition: "background-color 0.15s",
-              cursor: "col-resize",
-            }}
-          />
-          <Panel defaultSize={30} minSize={20}>
+            disabled={!aiOpen}
+            style={aiOpen ? undefined : { display: "none" }}
+            aria-label="Resize PDF and Ask Komodo"
+            title="Drag to resize PDF and Ask Komodo"
+          >
+            <span aria-hidden="true" />
+          </PanelResizeHandle>
+          <Panel ref={aiPanelRef} defaultSize={30} minSize={20} collapsible collapsedSize={0}
+            onCollapse={() => setAiOpen(false)} onExpand={() => setAiOpen(true)}
+            aria-hidden={!aiOpen} style={aiOpen ? undefined : { visibility: "hidden" }}>
             <AiPanel />
           </Panel>
         </PanelGroup>

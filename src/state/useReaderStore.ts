@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type { PDFDocumentProxy } from "pdfjs-dist";
+import type { ResponseLanguage } from "../utils/responseLanguage";
 
 export interface Quad {
   x0: number;
@@ -43,6 +44,7 @@ interface ReaderState {
   selection: string;
   selectionQuads: Quad[];
   outlineOpen: boolean;
+  aiOpen: boolean;
 
   // AI
   fileHash: string | null;
@@ -58,6 +60,7 @@ interface ReaderState {
   configured: boolean;
   apiKeyPresent: boolean;
   baseUrl: string;
+  chatBackend: "openai" | "codex";
   embedBackend: "local" | "remote";
   embedBaseUrl: string;
   embedModelRemote: string;
@@ -65,6 +68,7 @@ interface ReaderState {
   embeddingModel: string;
   topK: number;
   persona: string;
+  responseLanguage: ResponseLanguage;
 
   setPdfDoc: (doc: PDFDocumentProxy | null, fileName?: string, fileHash?: string | null) => void;
   setCurrentPage: (page: number) => void;
@@ -76,6 +80,7 @@ interface ReaderState {
   setHasText: (pageNum: number, hasText: boolean) => void;
   setSelection: (text: string, quads?: Quad[]) => void;
   toggleOutline: () => void;
+  setAiOpen: (open: boolean) => void;
   nextPage: () => void;
   prevPage: () => void;
 
@@ -91,7 +96,7 @@ interface ReaderState {
   setActiveModal: (modal: ReaderState["activeModal"]) => void;
   setConfigured: (v: boolean) => void;
   setApiKeyPresent: (v: boolean) => void;
-  setConfig: (cfg: Partial<Pick<ReaderState, "baseUrl" | "chatModel" | "embedBackend" | "embedBaseUrl" | "embedModelRemote" | "embeddingModel" | "topK" | "persona">>) => void;
+  setConfig: (cfg: Partial<Pick<ReaderState, "baseUrl" | "chatModel" | "chatBackend" | "embedBackend" | "embedBaseUrl" | "embedModelRemote" | "embeddingModel" | "topK" | "persona" | "responseLanguage">>) => void;
   clearChat: () => void;
 }
 
@@ -101,14 +106,15 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
   totalPages: 0,
   currentPage: 1,
   navigationRequest: { page: 1, id: 0 },
-  scale: 1.5,
-  displayScale: 1.5,
-  fitMode: null,
+  scale: 1,
+  displayScale: 1,
+  fitMode: "width",
   outline: [],
   hasTextMap: new Map(),
   selection: "",
   selectionQuads: [],
   outlineOpen: true,
+  aiOpen: true,
 
   fileHash: null,
   indexState: "idle",
@@ -122,6 +128,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
   configured: false,
   apiKeyPresent: false,
   baseUrl: "https://api.openai.com/v1",
+  chatBackend: "openai",
   embedBackend: "local",
   embedBaseUrl: "",
   embedModelRemote: "",
@@ -129,6 +136,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
   embeddingModel: "bge-small-en-v1.5",
   topK: 6,
   persona: "Explain simply",
+  responseLanguage: "auto",
 
   setPdfDoc: (doc, fileName = "", fileHash = null) => {
     if (doc) {
@@ -138,6 +146,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
         fileHash,
         totalPages: doc.numPages,
         currentPage: 1,
+        fitMode: "width",
         navigationRequest: { page: 1, id: get().navigationRequest.id + 1 },
         outline: [],
         hasTextMap: new Map(),
@@ -188,6 +197,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
   },
   setSelection: (text, quads = []) => set({ selection: text, selectionQuads: quads }),
   toggleOutline: () => set((s) => ({ outlineOpen: !s.outlineOpen })),
+  setAiOpen: (aiOpen) => set({ aiOpen }),
   nextPage: () => {
     const s = get();
     if (s.currentPage < s.totalPages) s.setCurrentPage(s.currentPage + 1);

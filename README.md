@@ -34,6 +34,8 @@ navigation, and text selection all work whether or not you ever turn the AI pane
 ### Reading
 - 📖 Open any PDF with smooth continuous scroll
 - 🔍 Zoom in/out, fit-width, fit-page
+- ↔️ Drag the divider between the PDF and Ask Komodo to resize both panes. PDFs open fitted to the available width; resizing the divider, outline or window automatically refits manual zoom while preserving your reading position.
+- ✦ Close Ask Komodo with its × button and reopen it with **✦ Ask** in the toolbar. Your conversation, draft and previous pane width are preserved.
 - 🗂️ Document outline / bookmarks navigation
 - ✂️ Text selection with a real text layer (rendered via [pdf.js](https://mozilla.github.io/pdf.js/))
 - 🏷️ Per-page "no text layer" badge so you know which pages are scanned images
@@ -47,6 +49,8 @@ navigation, and text selection all work whether or not you ever turn the AI pane
   grounded in it; when it doesn't, it falls back to general knowledge — and tells you so
 - 📍 Your **current page** and any **text selection** are always injected as high-priority context
 - 🎭 Pick a **persona** ("Explain simply", etc.) to control the answer style
+- 🌐 Choose **Response language / 回答言語** in Settings: Auto, 日本語 or English. The selection shortcut generates a question in your chosen language, and both chat providers receive the same response-language instruction.
+- ∑ Render LaTeX formulas in answers (`$...$`, `$$...$$`, `\(...\)`, and `\[...\]`), with bundled KaTeX fonts
 
 ### Privacy & providers (bring your own key)
 - 🔒 **No telemetry, no phone-home, no document upload to any Komodo server**
@@ -54,6 +58,7 @@ navigation, and text selection all work whether or not you ever turn the AI pane
   (`bge-small-en-v1.5` by default, `multilingual-e5-small` for CJK/multilingual)
 - ☁️ Or **remote embeddings** from any OpenAI-compatible endpoint
 - 🤖 **Chat** through any OpenAI-compatible provider (OpenAI, local servers, gateways…) using your key
+- 🤖 Or select **Codex CLI** to use your existing CLI login without a chat API key
 - 🔑 API keys stored in the OS keyring, with an encrypted on-disk fallback so they survive restarts
 
 ## Tech stack
@@ -71,7 +76,7 @@ navigation, and text selection all work whether or not you ever turn the AI pane
 ## Getting started
 
 ### Prerequisites
-- [Node.js](https://nodejs.org) 18+
+- [Node.js](https://nodejs.org) 22.12+ (Node 24 LTS recommended)
 - [Rust](https://www.rust-lang.org/tools/install) (stable toolchain)
 - Platform build dependencies required by Tauri — see the
   [Tauri prerequisites guide](https://tauri.app/start/prerequisites/)
@@ -82,6 +87,58 @@ navigation, and text selection all work whether or not you ever turn the AI pane
 npm install
 npm run tauri dev
 ```
+
+On Windows, the local setup helper installs Rust and the matching ONNX Runtime in
+`.tools` and leaves your global Rust installation and PATH alone. Visual Studio C++
+Build Tools and WebView2 are still required by Tauri.
+
+```powershell
+.\scripts\setup-windows.ps1
+.\scripts\dev.ps1
+```
+
+### Use Codex CLI for PDF questions
+
+Install [Codex CLI](https://learn.chatgpt.com/docs/non-interactive-mode) and sign in once:
+
+```bash
+npm install -g @openai/codex
+codex login
+```
+
+In Komodo's Settings, choose **Chat → Provider → Codex CLI (existing login)**.
+Leave **Codex executable** as `codex` when it is installed on PATH; an explicit
+`codex.exe` or npm `bin/codex.js` path also works, including paths with spaces.
+Leave the Codex model blank to use the CLI's configured default. Chat API settings
+are preserved when switching providers. Configure embeddings separately: download a
+local model (choose `multilingual-e5-small` for Japanese) or use a remote endpoint.
+Existing document indexes are rebuilt once to update the citation highlight coordinates.
+
+Komodo passes the question, recent conversation, and retrieved PDF passages to
+[`codex exec`](https://learn.chatgpt.com/docs/non-interactive-mode) through stdin in
+an empty temporary directory. It requests read-only execution, disables shell,
+web search, MCP servers, apps, plugins and hooks for this invocation, and does not
+persist CLI session rollouts. Codex uses its configured
+provider and existing authentication; this is a cloud chat option. The reply appears
+when the CLI completes, rather than token by token. Your saved CLI configuration
+is not modified. Komodo checks the MCP inventory before sending document excerpts
+and fails without sending them if the tool configuration cannot be inspected.
+
+### Verify changes
+
+```bash
+npm test
+npm run build
+npx playwright install chromium
+npm run test:e2e
+cargo test --manifest-path src-tauri/Cargo.toml
+```
+
+For the project-local Windows toolchain, dot-source
+`.\scripts\use-local-toolchain.ps1` before running Cargo. Browser tests load real
+PDFs using PDF.js and mock Tauri IPC, so they do not send requests to an AI provider.
+Rust includes opt-in smoke tests for a logged-in CLI and downloaded embedding
+models; those are ignored by default.
 
 The first launch walks you through setup: choose a chat provider + model, pick local or remote
 embeddings, and (for local embeddings) download the embedding model. Then open a PDF, let Komodo

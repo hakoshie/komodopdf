@@ -21,7 +21,7 @@ it("requests navigation for toolbar, outline, and repeated same-page citations",
 
 it("requires reindexing after changing embeddings but preserves it when only chat changes", () => {
   useReaderStore.setState({ indexState: "ready", embedBackend: "local", embeddingModel: "bge-small-en-v1.5" });
-  useReaderStore.getState().setConfig({ chatModel: "another-chat-model" });
+  useReaderStore.getState().setConfig({ chatBackend: "codex" });
   expect(useReaderStore.getState().indexState).toBe("ready");
   useReaderStore.getState().setConfig({ embeddingModel: "multilingual-e5-small" });
   expect(useReaderStore.getState().indexState).toBe("idle");

@@ -66,8 +66,6 @@ const PdfPageView = memo(function PdfPageView({ pdfDoc, pageNum, scale, size, ro
       <div ref={textRef} className="textLayer pdf-text-layer" onMouseUp={() => {
         useReaderStore.getState().setSelection(window.getSelection()?.toString() || "");
       }} />
-      <div style={{ position: "absolute", top: 4, right: 8, fontSize: 11,
-        color: "var(--text-muted)", pointerEvents: "none" }}>{pageNum}</div>
       {highlight?.quads.map((q, i) => (
         <div key={i} style={{ position: "absolute", left: Math.min(q.x0, q.x1) * scale,
           top: Math.min(q.y0, q.y1) * scale, width: Math.abs(q.x1 - q.x0) * scale,
@@ -124,8 +122,14 @@ export default function ReaderPane() {
     const container = scrollRef.current;
     if (!container) return;
     let resizeFrame = 0;
+    let previousWidth = 0;
     const measure = () => {
       const width = container.clientWidth;
+      // A pane/outline/window resize returns manual zoom to automatic width fitting.
+      if (previousWidth && width !== previousWidth && useReaderStore.getState().fitMode === null) {
+        useReaderStore.getState().setFitMode("width");
+      }
+      previousWidth = width;
       setBounds({ width, height: container.clientHeight });
     };
     measure();

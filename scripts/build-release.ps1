@@ -9,7 +9,7 @@
 $ErrorActionPreference = "Stop"
 
 $projectRoot = Split-Path -Parent $PSScriptRoot
-$version = "0.1.0"
+$version = (Get-Content -LiteralPath (Join-Path $projectRoot 'package.json') -Raw | ConvertFrom-Json).version
 $productName = "Komodo PDF"
 $exeName = "komodo-pdf.exe"
 
@@ -23,7 +23,17 @@ Write-Host "========================================" -ForegroundColor Cyan
 # ---------------------------------------------------------------------------
 Write-Host "`n[1/4] Building Tauri app..." -ForegroundColor Yellow
 Set-Location $projectRoot
-npm run tauri build
+. "$PSScriptRoot\use-local-toolchain.ps1"
+if (Test-Path -LiteralPath $komodoDll) {
+    # Bundle the matching shared runtime beside the Windows executable.
+    $komodoResources = @{}
+    $komodoResources[$komodoDll.Replace('\', '/')] = 'onnxruntime.dll'
+    $komodoOverride = Join-Path $projectRoot '.tools\tauri-runtime.json'
+    @{ bundle = @{ resources = $komodoResources } } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $komodoOverride -Encoding UTF8
+    npm run tauri -- build --config $komodoOverride
+} else {
+    npm run tauri -- build
+}
 if ($LASTEXITCODE -ne 0) { throw "Tauri build failed" }
 
 # ---------------------------------------------------------------------------
@@ -33,7 +43,9 @@ Write-Host "`n[2/4] Preparing release directory..." -ForegroundColor Yellow
 $releaseDir = Join-Path $projectRoot "release"
 $portableDir = Join-Path $releaseDir "portable"
 if (Test-Path $releaseDir) {
-    Remove-Item -Recurse -Force $releaseDir
+    $resolvedRelease = [System.IO.Path]::GetFullPath($releaseDir)
+    if ($resolvedRelease -ne [System.IO.Path]::GetFullPath((Join-Path $projectRoot 'release'))) { throw 'Unexpected release output path' }
+    Remove-Item -LiteralPath $resolvedRelease -Recurse -Force
 }
 New-Item -ItemType Directory -Path $releaseDir | Out-Null
 New-Item -ItemType Directory -Path $portableDir | Out-Null

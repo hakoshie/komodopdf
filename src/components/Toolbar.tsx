@@ -14,6 +14,8 @@ export default function Toolbar() {
     setScale,
     setFitMode,
     toggleOutline,
+    aiOpen,
+    setAiOpen,
   } = useReaderStore();
 
   const hasDoc = totalPages > 0;
@@ -68,6 +70,16 @@ export default function Toolbar() {
       setOpening(false);
     }
   }
+
+  const askToggle = (
+    <button id="toggle-ask-komodo" onClick={() => setAiOpen(!aiOpen)}
+      title={aiOpen ? "Hide Ask Komodo" : "Show Ask Komodo"}
+      aria-expanded={aiOpen} aria-controls="ask-komodo-content"
+      style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid var(--border)",
+        backgroundColor: "var(--surface)", color: "var(--ai-accent)", whiteSpace: "nowrap" }}>
+      ✦ Ask
+    </button>
+  );
 
   return (
     <header
@@ -126,6 +138,7 @@ export default function Toolbar() {
       </button>
       {openError && <span role="alert" title={openError} style={{ color: "#f59e0b", fontSize: 12 }}>Could not open PDF: {openError}</span>}
 
+      {!hasDoc && <div style={{ marginLeft: "auto" }}>{askToggle}</div>}
 
       {hasDoc && (
         <>
@@ -174,6 +187,7 @@ export default function Toolbar() {
             >
               +
             </button>
+            {askToggle}
             <span style={{ fontVariantNumeric: "tabular-nums", minWidth: 48, textAlign: "center" }}>
               {fitMode ? "Fit" : `${Math.round(displayScale * 100)}%`}
             </span>

@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { Channel } from "@tauri-apps/api/core";
 import { useReaderStore } from "../state/useReaderStore";
 import MarkdownRenderer from "./MarkdownRenderer";
+import { responseLanguage, selectionQuestion } from "../utils/responseLanguage";
 
 interface ChatEvent {
   kind: "sources" | "token" | "done" | "error";
@@ -38,6 +39,7 @@ export default function AiPanel() {
         store.setApiKeyPresent(isConfigured);
         store.setConfigured(isConfigured);
         store.setConfig({
+          chatBackend: settings.chatBackend === "codex" ? "codex" : "openai",
           embedBackend: settings.embedBackend === "remote" ? "remote" : "local",
           embedBaseUrl: settings.embedBaseUrl || "",
           embedModelRemote: settings.embedModelRemote || "",
@@ -46,6 +48,7 @@ export default function AiPanel() {
           embeddingModel: settings.embedModel || "nomic-embed-text-v1.5",
           topK: Number(settings.topK) || 6,
           persona: settings.persona || "Explain simply",
+          responseLanguage: responseLanguage(settings.responseLanguage),
         });
       } catch {
         // ignore
@@ -170,10 +173,7 @@ export default function AiPanel() {
   function handleAskAboutThis() {
     const store = useReaderStore.getState();
     if (!store.selection) return;
-    const prompt = `Explain this: "${store.selection.slice(0, 200)}${
-      store.selection.length > 200 ? "..." : ""
-    }"`;
-    doAsk(prompt);
+    doAsk(selectionQuestion(store.selection, store.responseLanguage));
   }
 
   async function handleReindex() {
@@ -199,6 +199,7 @@ export default function AiPanel() {
     messages,
     streaming,
     configured,
+    responseLanguage: language,
     indexState,
     setActiveModal,
     setIndexState,
@@ -211,7 +212,7 @@ export default function AiPanel() {
   }, [messages, streaming]);
 
   return (
-    <div
+    <div id="ask-komodo-content"
       style={{
         display: "flex",
         flexDirection: "column",
@@ -232,23 +233,33 @@ export default function AiPanel() {
           justifyContent: "space-between",
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
           <span style={{ color: "var(--ai-accent)" }}>✦</span>
-          <span>Ask Komodo</span>
+          <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>Ask Komodo</span>
         </div>
-        <button
-          onClick={() => setActiveModal("setup")}
-          title="Settings"
-          style={{
-            padding: "4px 8px",
-            borderRadius: 6,
-            fontSize: 16,
-            background: "var(--surface)",
-            border: "1px solid var(--border)",
-          }}
-        >
-          ⚙
-        </button>
+        <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+          <button
+            onClick={() => setActiveModal("setup")}
+            title="Settings"
+            style={{
+              padding: "4px 8px",
+              borderRadius: 6,
+              fontSize: 16,
+              background: "var(--surface)",
+              border: "1px solid var(--border)",
+            }}
+          >
+            ⚙
+          </button>
+          <button title="Close Ask Komodo" aria-label="Close Ask Komodo"
+            onClick={() => {
+              useReaderStore.getState().setAiOpen(false);
+              document.getElementById("toggle-ask-komodo")?.focus();
+            }}
+            style={{ padding: "4px 8px", borderRadius: 6, fontSize: 18 }}>
+            ×
+          </button>
+        </div>
       </div>
 
       <div ref={scrollRef} style={{ flex: 1, padding: 16, overflow: "auto" }}>
@@ -375,7 +386,7 @@ export default function AiPanel() {
               fontWeight: 500,
             }}
           >
-            Ask about this selection
+            {language === "ja" ? "選択箇所について質問" : "Ask about this selection"}
           </button>
         </div>
       )}
@@ -405,7 +416,7 @@ export default function AiPanel() {
               }
             }}
             placeholder={
-              configured ? "Ask anything..." : "Configure API key to ask..."
+              configured ? "Ask anything..." : "Choose a provider in Settings..."
             }
             disabled={!configured || streaming || !fileName}
             rows={1}
@@ -457,7 +468,7 @@ export default function AiPanel() {
           }}
         >
           {!configured
-            ? "Not configured — open Settings (⚙) to add your API key"
+            ? "Not configured — open Settings (⚙) to choose a provider"
             : indexState === "ready"
             ? "Ready to answer"
             : indexState === "indexing"

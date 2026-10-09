@@ -6,7 +6,8 @@ mod rag;
 mod secrets;
 
 use db::{Db, Settings};
-use llm::{ChatEvent, EmbedInput, LlmProvider, Quad};
+use futures_util::StreamExt;
+use llm::{ChatEvent, EmbedInput, Quad};
 use rag::{build_grounding, index_document, IndexProgress, PageExtraction, ReaderContext};
 use secrets::KeySlot;
 use std::collections::HashMap;
@@ -16,7 +17,6 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tauri::ipc::Channel;
 use tauri::Manager;
-use futures_util::StreamExt;
 
 fn log_level_filter(level: &str) -> log::LevelFilter {
     match level.to_lowercase().as_str() {
@@ -95,7 +95,13 @@ impl LlmLogger {
         })
     }
 
-    fn log_request(&self, file_hash: &str, system_prompt: &str, user_message: &str, is_first: bool) {
+    fn log_request(
+        &self,
+        file_hash: &str,
+        system_prompt: &str,
+        user_message: &str,
+        is_first: bool,
+    ) {
         let mut state = self.system_logged.lock().unwrap();
         let mut file = self.file.lock().unwrap();
 
@@ -174,7 +180,11 @@ fn is_audit_enabled(app: tauri::AppHandle) -> bool {
 }
 
 #[tauri::command]
-fn write_audit_file(app: tauri::AppHandle, file_hash: String, content: String) -> Result<(), String> {
+fn write_audit_file(
+    app: tauri::AppHandle,
+    file_hash: String,
+    content: String,
+) -> Result<(), String> {
     let dir = crate::portable::data_dir(&app).join("pdf-audit");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let timestamp = std::time::SystemTime::now()
@@ -183,7 +193,8 @@ fn write_audit_file(app: tauri::AppHandle, file_hash: String, content: String) -
         .as_secs();
     let path = dir.join(format!("{}_{}.txt", file_hash, timestamp));
     let mut file = std::fs::File::create(path).map_err(|e| e.to_string())?;
-    file.write_all(content.as_bytes()).map_err(|e| e.to_string())?;
+    file.write_all(content.as_bytes())
+        .map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -209,7 +220,11 @@ async fn index_document_cmd(
         let key = secrets::get_api_key(KeySlot::Embed)
             .map_err(|e| e.to_string())?
             .unwrap_or_default();
-        log::debug!("using remote embedder: base_url={} model={}", base_url, model);
+        log::debug!(
+            "using remote embedder: base_url={} model={}",
+            base_url,
+            model
+        );
         Box::new(llm::embed::openai_compat::OpenAiCompatibleEmbedder::new(
             base_url, key, model, 1536,
         ))
@@ -218,10 +233,7 @@ async fn index_document_cmd(
             .ok_or_else(|| format!("Unknown embedding model: {}", settings.embed_model))?;
         let dir = models::model_dir(&app, &settings.embed_model);
         log::debug!("using local embedder: model_id={} dir={:?}", spec.id, dir);
-        Box::new(
-            llm::embed::local::LocalEmbedder::new(dir, spec)
-                .map_err(|e| e.to_string())?,
-        )
+        Box::new(llm::embed::local::LocalEmbedder::new(dir, spec).map_err(|e| e.to_string())?)
     };
     log::debug!("embedder created, dimensions={}", embedder.dimensions());
 
@@ -271,10 +283,7 @@ async fn ask(
         let spec = models::spec(&settings.embed_model)
             .ok_or_else(|| format!("Unknown embedding model: {}", settings.embed_model))?;
         let dir = models::model_dir(&app, &settings.embed_model);
-        Box::new(
-            llm::embed::local::LocalEmbedder::new(dir, spec)
-                .map_err(|e| e.to_string())?,
-        )
+        Box::new(llm::embed::local::LocalEmbedder::new(dir, spec).map_err(|e| e.to_string())?)
     };
 
     let top_k = settings.top_k as usize;
@@ -282,7 +291,13 @@ async fn ask(
         return Err("This PDF needs to be reindexed with the current embedding settings".into());
     }
     let grounding = build_grounding(
-        &*state, &file_hash, &question, &ctx, top_k, embedder.as_ref(), &persona,
+        &*state,
+        &file_hash,
+        &question,
+        &ctx,
+        top_k,
+        embedder.as_ref(),
+        &persona,
     )
     .await
     .map_err(|e| e.to_string())?;
@@ -294,11 +309,7 @@ async fn ask(
     let chat_key = secrets::get_api_key(KeySlot::Chat)
         .map_err(|e| e.to_string())?
         .unwrap_or_default();
-    let provider = llm::chat::openai_compat::OpenAiCompatibleProvider::new(
-        settings.chat_base_url,
-        chat_key,
-        settings.chat_model.clone(),
-    );
+    let provider = llm::chat::provider(&settings, chat_key).map_err(|e| e.to_string())?;
 
     let model = settings.chat_model.clone();
     let is_first = message_count == 0;
@@ -309,11 +320,16 @@ async fn ask(
     let score_threshold: f32 = 0.55;
     let use_rag = grounding.max_score >= score_threshold;
 
-    let system_prompt = if use_rag {
+    let mut system_prompt = if use_rag {
         grounding.system_prompt.clone()
     } else {
         grounding.knowledge_system_prompt.clone()
     };
+    system_prompt.push_str(match settings.response_language.as_str() {
+        "ja" => "\n\n回答言語：日本語。選択箇所や文書が英語でも、説明と回答は日本語で書いてください。数式・固有名詞・必要な引用は原文を保ち、出典番号 [n] を維持してください。",
+        "en" => "\n\nResponse language: English. Write explanations and answers in English, even when the selected passage or document uses another language. Preserve formulas, proper names, necessary quotations, and source markers [n].",
+        _ => "\n\nAnswer in the language of the latest user question, unless the user explicitly requests another language. Preserve source markers [n].",
+    });
 
     let mut messages = history;
     messages.push(llm::ChatMessage {
@@ -329,12 +345,24 @@ async fn ask(
     };
 
     if let Some(logger) = &llm_logger {
-        logger.log_request(&file_hash, &system_prompt, &req.messages.last().map(|m| m.content.as_str()).unwrap_or(""), is_first);
+        logger.log_request(
+            &file_hash,
+            &system_prompt,
+            &req.messages
+                .last()
+                .map(|m| m.content.as_str())
+                .unwrap_or(""),
+            is_first,
+        );
     }
 
     // Stream immediately in both cases — no double generation, no judge pause.
     if !use_rag {
-        let note = "> _The document didn't contain a strong answer here, so this draws mainly on general knowledge._\n\n";
+        let note = if settings.response_language == "ja" {
+            "> _文書内に十分な根拠が見つからなかったため、主に一般知識に基づいて回答します。_\n\n"
+        } else {
+            "> _The document didn't contain a strong answer here, so this draws mainly on general knowledge._\n\n"
+        };
         channel
             .send(ChatEvent::Token(note.to_string()))
             .map_err(|e| e.to_string())?;
@@ -391,12 +419,9 @@ async fn test_connection(
         .filter(|k| !k.is_empty())
         .or_else(|| secrets::get_api_key(KeySlot::Chat).ok().flatten());
 
-    if let Some(key) = key_to_test {
-        let provider = llm::chat::openai_compat::OpenAiCompatibleProvider::new(
-            settings.chat_base_url.clone(),
-            key,
-            settings.chat_model.clone(),
-        );
+    {
+        let provider = llm::chat::provider(&settings, key_to_test.unwrap_or_default())
+            .map_err(|e| e.to_string())?;
         let req = llm::ChatRequest {
             model: settings.chat_model.clone(),
             messages: vec![llm::ChatMessage {
@@ -418,8 +443,6 @@ async fn test_connection(
                 chat_err = Some(e.to_string());
             }
         }
-    } else {
-        chat_err = Some("No API key set".to_string());
     }
 
     let mut embed_ok = false;
@@ -452,7 +475,10 @@ async fn test_connection(
         }
     };
 
-    match embedder.embed(&["test".to_string()], EmbedInput::Query).await {
+    match embedder
+        .embed(&["test".to_string()], EmbedInput::Query)
+        .await
+    {
         Ok(_) => embed_ok = true,
         Err(e) => embed_err = Some(e.to_string()),
     }
@@ -490,7 +516,10 @@ fn list_embedding_models(app: tauri::AppHandle) -> Result<Vec<ModelInfo>, String
 }
 
 #[tauri::command]
-fn model_status_cmd(app: tauri::AppHandle, model_id: String) -> Result<models::ModelStatus, String> {
+fn model_status_cmd(
+    app: tauri::AppHandle,
+    model_id: String,
+) -> Result<models::ModelStatus, String> {
     models::model_status(&app, &model_id).map_err(|e| e.to_string())
 }
 

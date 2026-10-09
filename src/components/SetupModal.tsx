@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { Channel } from "@tauri-apps/api/core";
 import { useReaderStore } from "../state/useReaderStore";
 import ModelDownloadModal from "./ModelDownloadModal";
+import { responseLanguage, type ResponseLanguage } from "../utils/responseLanguage";
 
 interface ModelInfo {
   id: string;
@@ -29,6 +30,10 @@ export default function SetupModal() {
   } = useReaderStore();
 
   const [localBaseUrl, setLocalBaseUrl] = useState(baseUrl);
+  const [chatBackend, setChatBackend] = useState<"openai" | "codex">("openai");
+  const [codexPath, setCodexPath] = useState("codex");
+  const [codexModel, setCodexModel] = useState("");
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [localChatModel, setLocalChatModel] = useState(chatModel);
   const [apiKey, setApiKey] = useState("");
   const [localEmbedModel, setLocalEmbedModel] = useState(embeddingModel);
@@ -38,6 +43,7 @@ export default function SetupModal() {
   const [embedModelRemote, setEmbedModelRemote] = useState("");
   const [topK, setTopK] = useState(6);
   const [persona, setPersona] = useState("Explain simply");
+  const [language, setLanguage] = useState<ResponseLanguage>(useReaderStore.getState().responseLanguage);
   const [logLevel, setLogLevel] = useState("info");
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [testing, setTesting] = useState(false);
@@ -64,6 +70,9 @@ export default function SetupModal() {
     (async () => {
       try {
         const settings: any = await invoke("get_settings");
+        setChatBackend(settings.chatBackend === "codex" ? "codex" : "openai");
+        setCodexPath(settings.codexPath || "codex");
+        setCodexModel(settings.codexModel || "");
         setLocalBaseUrl(settings.chatBaseUrl || "https://api.openai.com/v1");
         setLocalChatModel(settings.chatModel || "gpt-4o-mini");
         setLocalEmbedModel(settings.embedModel || "nomic-embed-text-v1.5");
@@ -72,6 +81,7 @@ export default function SetupModal() {
         if (settings.embedModelRemote) setEmbedModelRemote(settings.embedModelRemote);
         setTopK(Number(settings.topK) || 6);
         setPersona(settings.persona || "Explain simply");
+        setLanguage(responseLanguage(settings.responseLanguage));
         setLogLevel(settings.logLevel || "info");
 
         setApiKeyPresent(settings.configured === true);
@@ -114,6 +124,7 @@ export default function SetupModal() {
     try {
       await invoke("set_settings", {
         settings: {
+          chatBackend, codexPath, codexModel,
           chatBaseUrl: localBaseUrl,
           chatModel: localChatModel,
           embedBackend: embedBackend,
@@ -122,11 +133,12 @@ export default function SetupModal() {
           embedModelRemote: embedBackend === "remote" ? embedModelRemote || null : null,
           topK,
           persona,
+          responseLanguage: language,
           logLevel,
           configured: true,
         },
       });
-      if (apiKey) {
+      if (chatBackend === "openai" && apiKey) {
         await invoke("set_api_key", { slot: "chat", key: apiKey });
       }
       if (embedBackend === "remote" && embedApiKey) {
@@ -150,9 +162,11 @@ export default function SetupModal() {
   }
 
   async function handleSave() {
+    setSaveError(null);
     try {
       await invoke("set_settings", {
         settings: {
+          chatBackend, codexPath, codexModel,
           chatBaseUrl: localBaseUrl,
           chatModel: localChatModel,
           embedBackend: embedBackend,
@@ -161,11 +175,12 @@ export default function SetupModal() {
           embedModelRemote: embedBackend === "remote" ? embedModelRemote || null : null,
           topK,
           persona,
+          responseLanguage: language,
           logLevel,
           configured: true,
         },
       });
-      if (apiKey) {
+      if (chatBackend === "openai" && apiKey) {
         await invoke("set_api_key", { slot: "chat", key: apiKey });
       }
       if (embedBackend === "remote" && embedApiKey) {
@@ -174,6 +189,7 @@ export default function SetupModal() {
       setApiKeyPresent(true);
       setConfigured(true);
       setConfig({
+        chatBackend,
         embedBackend,
         embedBaseUrl,
         embedModelRemote,
@@ -182,10 +198,12 @@ export default function SetupModal() {
         embeddingModel: localEmbedModel,
         topK,
         persona,
+        responseLanguage: language,
       });
       setActiveModal("none");
     } catch (e) {
       console.error("Save failed", e);
+      setSaveError(String(e));
     }
   }
 
@@ -231,9 +249,32 @@ export default function SetupModal() {
     <div style={modalOverlayStyle}>
       <div style={modalContentStyle}>
         <h3 style={{ margin: "0 0 16px", fontSize: 16 }}>Settings</h3>
+        {saveError && <p role="alert" style={{ color: "#ef4444", fontSize: 13 }}>Could not save settings: {saveError}</p>}
 
         <div style={sectionStyle}>
           <div style={sectionTitleStyle}>Chat (required)</div>
+          <label style={labelStyle} htmlFor="chat-provider">Provider</label>
+          <select id="chat-provider" value={chatBackend} style={inputStyle}
+            onChange={(e) => setChatBackend(e.target.value as "openai" | "codex")}>
+            <option value="openai">OpenAI-compatible API</option>
+            <option value="codex">Codex CLI (existing login)</option>
+          </select>
+          <label style={labelStyle} htmlFor="response-language">Response language / 回答言語</label>
+          <select id="response-language" value={language} style={inputStyle}
+            onChange={(e) => setLanguage(responseLanguage(e.target.value))}>
+            <option value="auto">Auto / 自動（質問に合わせる）</option>
+            <option value="ja">日本語</option>
+            <option value="en">English</option>
+          </select>
+          <p style={hintStyle}>選択箇所の説明と通常の回答に使用します。</p>
+          {chatBackend === "codex" ? <>
+            <label style={labelStyle} htmlFor="codex-path">Codex executable</label>
+            <input id="codex-path" style={inputStyle} value={codexPath} onChange={(e) => setCodexPath(e.target.value)} placeholder="codex" />
+            <label style={labelStyle} htmlFor="codex-model">Codex model (optional)</label>
+            <input id="codex-model" style={inputStyle} value={codexModel} onChange={(e) => setCodexModel(e.target.value)} placeholder="Use CLI default" />
+            <p style={hintStyle}>Install Codex CLI and run <code>codex login</code> once. Komodo uses that login, so no chat API key is needed here. Answers arrive when the CLI finishes.</p>
+            <p style={hintStyle}>Your question and document excerpts are sent through your configured Codex provider. Embeddings are configured separately below.</p>
+          </> : <>
           <label style={labelStyle}>Base URL</label>
           <input
             style={inputStyle}
@@ -256,6 +297,7 @@ export default function SetupModal() {
             onChange={(e) => setLocalChatModel(e.target.value)}
             placeholder="gpt-4o-mini"
           />
+          </>}
         </div>
 
         <div style={sectionStyle}>
