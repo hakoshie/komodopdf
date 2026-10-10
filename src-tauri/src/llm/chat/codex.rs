@@ -182,7 +182,6 @@ impl LlmProvider for CodexProvider {
         command.args([
             "exec",
             "--json",
-            "--ephemeral",
             "--skip-git-repo-check",
             "--sandbox",
             "read-only",
@@ -342,7 +341,7 @@ console.log(JSON.stringify({type:'item.completed',item:{type:'agent_message',tex
         let reply: Value = serde_json::from_str(&answer).unwrap();
         let args = reply["args"].as_array().unwrap();
         assert!(args.contains(&Value::String("read-only".into())));
-        assert!(args.contains(&Value::String("--ephemeral".into())));
+        assert!(!args.contains(&Value::String("--ephemeral".into())));
         assert!(args.contains(&Value::String("features.apps=false".into())));
         assert!(args.contains(&Value::String("features.plugins=false".into())));
         assert!(args.contains(&Value::String("features.hooks=false".into())));

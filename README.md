@@ -117,8 +117,10 @@ Existing document indexes are rebuilt once to update the citation highlight coor
 Komodo passes the question, recent conversation, and retrieved PDF passages to
 [`codex exec`](https://learn.chatgpt.com/docs/non-interactive-mode) through stdin in
 an empty temporary directory. It requests read-only execution, disables shell,
-web search, MCP servers, apps, plugins and hooks for this invocation, and does not
-persist CLI session rollouts. Codex uses its configured
+web search, MCP servers, apps, plugins and hooks for this invocation, and saves
+CLI session rollouts in the configured Codex home (normally `~/.codex/sessions/`).
+Each question starts a separate saved session containing the question, recent
+conversation, retrieved PDF passages and reply. Codex uses its configured
 provider and existing authentication; this is a cloud chat option. The reply appears
 when the CLI completes, rather than token by token. Your saved CLI configuration
 is not modified. Komodo checks the MCP inventory before sending document excerpts

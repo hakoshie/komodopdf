@@ -274,6 +274,7 @@ export default function SetupModal() {
             <input id="codex-model" style={inputStyle} value={codexModel} onChange={(e) => setCodexModel(e.target.value)} placeholder="Use CLI default" />
             <p style={hintStyle}>Install Codex CLI and run <code>codex login</code> once. Komodo uses that login, so no chat API key is needed here. Answers arrive when the CLI finishes.</p>
             <p style={hintStyle}>Your question and document excerpts are sent through your configured Codex provider. Embeddings are configured separately below.</p>
+            <p style={hintStyle}>Codex sessions are saved automatically. 質問・参照したPDFの抜粋・回答はCodexのセッション履歴に保存されます。</p>
           </> : <>
           <label style={labelStyle}>Base URL</label>
           <input
