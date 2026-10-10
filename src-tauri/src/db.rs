@@ -16,6 +16,8 @@ pub struct Settings {
     pub codex_path: String,
     #[serde(default)]
     pub codex_model: String,
+    #[serde(default)]
+    pub codex_reasoning_effort: String,
     pub chat_base_url: String,
     pub chat_model: String,
     pub embed_backend: String,
@@ -46,6 +48,7 @@ impl Default for Settings {
             chat_backend: default_chat_backend(),
             codex_path: default_codex_path(),
             codex_model: String::new(),
+            codex_reasoning_effort: String::new(),
             chat_base_url: "https://api.openai.com/v1".to_string(),
             chat_model: "gpt-4o-mini".to_string(),
             embed_backend: "local".to_string(),
@@ -171,6 +174,7 @@ impl Db {
                 "chat_backend" => settings.chat_backend = value,
                 "codex_path" => settings.codex_path = value,
                 "codex_model" => settings.codex_model = value,
+                "codex_reasoning_effort" => settings.codex_reasoning_effort = value,
                 "chat_base_url" => settings.chat_base_url = value,
                 "chat_model" => settings.chat_model = value,
                 "embed_backend" => settings.embed_backend = value,
@@ -196,6 +200,10 @@ impl Db {
             ("chat_backend", settings.chat_backend.as_str()),
             ("codex_path", settings.codex_path.as_str()),
             ("codex_model", settings.codex_model.as_str()),
+            (
+                "codex_reasoning_effort",
+                settings.codex_reasoning_effort.as_str(),
+            ),
             ("chat_base_url", settings.chat_base_url.as_str()),
             ("chat_model", settings.chat_model.as_str()),
             ("embed_backend", settings.embed_backend.as_str()),
@@ -316,15 +324,23 @@ mod tests {
     #[test]
     fn old_settings_load_with_api_backend_and_codex_settings_persist() {
         let mut legacy = serde_json::to_value(Settings::default()).unwrap();
-        for key in ["chatBackend", "codexPath", "codexModel", "responseLanguage"] {
+        for key in [
+            "chatBackend",
+            "codexPath",
+            "codexModel",
+            "codexReasoningEffort",
+            "responseLanguage",
+        ] {
             legacy.as_object_mut().unwrap().remove(key);
         }
         let mut settings: Settings = serde_json::from_value(legacy).unwrap();
         assert_eq!(settings.chat_backend, "openai");
         assert_eq!(settings.response_language, "auto");
+        assert_eq!(settings.codex_reasoning_effort, "");
         settings.chat_backend = "codex".into();
         settings.codex_path = "C:/CLI with spaces/codex.exe".into();
         settings.codex_model = "custom-model".into();
+        settings.codex_reasoning_effort = "high".into();
         settings.response_language = "ja".into();
         let db = db();
         db.set_settings(&settings).unwrap();
@@ -332,6 +348,7 @@ mod tests {
         assert_eq!(loaded.chat_backend, "codex");
         assert_eq!(loaded.codex_path, settings.codex_path);
         assert_eq!(loaded.codex_model, settings.codex_model);
+        assert_eq!(loaded.codex_reasoning_effort, "high");
         assert_eq!(loaded.response_language, "ja");
     }
 

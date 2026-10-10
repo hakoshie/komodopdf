@@ -18,6 +18,19 @@ interface ModelInfo {
   };
 }
 
+interface CodexModelOption {
+  id: string;
+  displayName: string;
+  defaultReasoningEffort: string;
+  supportedReasoningEfforts: string[];
+}
+
+const thinkingLabels: Record<string, string> = {
+  none: "None / なし", minimal: "Minimal / 最小", low: "Low / 軽め",
+  medium: "Medium / 標準", high: "High / 深め", xhigh: "Extra high / より深く",
+  max: "Max / 最大", ultra: "Ultra / 最高",
+};
+
 export default function SetupModal() {
   const {
     setActiveModal,
@@ -33,6 +46,12 @@ export default function SetupModal() {
   const [chatBackend, setChatBackend] = useState<"openai" | "codex">("openai");
   const [codexPath, setCodexPath] = useState("codex");
   const [codexModel, setCodexModel] = useState("");
+  const [codexReasoningEffort, setCodexReasoningEffort] = useState("");
+  const [codexModels, setCodexModels] = useState<CodexModelOption[]>([]);
+  const [codexModelsLoading, setCodexModelsLoading] = useState(false);
+  const [codexModelsError, setCodexModelsError] = useState<string | null>(null);
+  const [codexModelsRefresh, setCodexModelsRefresh] = useState(0);
+  const [customCodexModel, setCustomCodexModel] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [localChatModel, setLocalChatModel] = useState(chatModel);
   const [apiKey, setApiKey] = useState("");
@@ -73,6 +92,7 @@ export default function SetupModal() {
         setChatBackend(settings.chatBackend === "codex" ? "codex" : "openai");
         setCodexPath(settings.codexPath || "codex");
         setCodexModel(settings.codexModel || "");
+        setCodexReasoningEffort(settings.codexReasoningEffort || "");
         setLocalBaseUrl(settings.chatBaseUrl || "https://api.openai.com/v1");
         setLocalChatModel(settings.chatModel || "gpt-4o-mini");
         setLocalEmbedModel(settings.embedModel || "nomic-embed-text-v1.5");
@@ -110,6 +130,30 @@ export default function SetupModal() {
   }, []);
 
   useEffect(() => {
+    if (chatBackend !== "codex") return;
+    let cancelled = false;
+    setCodexModelsLoading(true);
+    setCodexModelsError(null);
+    setCodexModels([]);
+    const timer = setTimeout(() => {
+      invoke<CodexModelOption[]>("list_codex_models", { executable: codexPath })
+        .then((options) => { if (!cancelled) setCodexModels(options); })
+        .catch((error) => { if (!cancelled) setCodexModelsError(String(error)); })
+        .finally(() => { if (!cancelled) setCodexModelsLoading(false); });
+    }, 300);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [chatBackend, codexPath, codexModelsRefresh]);
+
+  const selectedCodexModel = codexModels.find((model) => model.id === codexModel);
+  const thinkingLevels = !codexModel ? [] : selectedCodexModel?.supportedReasoningEfforts ?? Object.keys(thinkingLabels);
+
+  useEffect(() => {
+    if (selectedCodexModel && codexReasoningEffort && !selectedCodexModel.supportedReasoningEfforts.includes(codexReasoningEffort)) {
+      setCodexReasoningEffort("");
+    }
+  }, [selectedCodexModel, codexReasoningEffort]);
+
+  useEffect(() => {
     if (embedBackend === "local") {
       const sel = models.find((m) => m.id === localEmbedModel);
       setSelectedStatus(sel ? sel.status : null);
@@ -125,6 +169,7 @@ export default function SetupModal() {
       await invoke("set_settings", {
         settings: {
           chatBackend, codexPath, codexModel,
+          codexReasoningEffort: codexReasoningEffort || selectedCodexModel?.defaultReasoningEffort || "",
           chatBaseUrl: localBaseUrl,
           chatModel: localChatModel,
           embedBackend: embedBackend,
@@ -167,6 +212,7 @@ export default function SetupModal() {
       await invoke("set_settings", {
         settings: {
           chatBackend, codexPath, codexModel,
+          codexReasoningEffort: codexReasoningEffort || selectedCodexModel?.defaultReasoningEffort || "",
           chatBaseUrl: localBaseUrl,
           chatModel: localChatModel,
           embedBackend: embedBackend,
@@ -270,8 +316,39 @@ export default function SetupModal() {
           {chatBackend === "codex" ? <>
             <label style={labelStyle} htmlFor="codex-path">Codex executable</label>
             <input id="codex-path" style={inputStyle} value={codexPath} onChange={(e) => setCodexPath(e.target.value)} placeholder="codex" />
-            <label style={labelStyle} htmlFor="codex-model">Codex model (optional)</label>
-            <input id="codex-model" style={inputStyle} value={codexModel} onChange={(e) => setCodexModel(e.target.value)} placeholder="Use CLI default" />
+            <label style={labelStyle} htmlFor="codex-model">Codex model</label>
+            <select id="codex-model" style={inputStyle} value={customCodexModel ? "__custom__" : codexModel}
+              onChange={(e) => {
+                if (e.target.value === "__custom__") { setCustomCodexModel(true); return; }
+                setCustomCodexModel(false);
+                setCodexModel(e.target.value);
+                const model = codexModels.find((option) => option.id === e.target.value);
+                if (!model?.supportedReasoningEfforts.includes(codexReasoningEffort)) setCodexReasoningEffort("");
+              }}>
+              <option value="">CLI default / CLIの既定</option>
+              {codexModels.map((model) => <option key={model.id} value={model.id}>{model.displayName}</option>)}
+              {codexModel && !selectedCodexModel && <option value={codexModel}>{codexModel} (saved/custom)</option>}
+              <option value="__custom__">Custom model / 手動入力</option>
+            </select>
+            {customCodexModel && <>
+              <label style={labelStyle} htmlFor="codex-custom-model">Custom Codex model</label>
+              <input id="codex-custom-model" style={inputStyle} value={codexModel}
+                onChange={(e) => { setCodexModel(e.target.value); setCodexReasoningEffort(""); }} placeholder="Model ID" />
+            </>}
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={hintStyle}>{codexModelsLoading ? "Loading models… / 読み込み中" : "Models available in your Codex CLI / 利用できるモデル"}</span>
+              <button type="button" onClick={() => setCodexModelsRefresh((value) => value + 1)} disabled={codexModelsLoading}
+                style={{ ...hintStyle, color: "var(--accent)", whiteSpace: "nowrap" }}>Refresh / 更新</button>
+            </div>
+            {codexModelsError && <p role="alert" style={{ ...hintStyle, color: "#f59e0b" }}>{codexModelsError}</p>}
+            <label style={labelStyle} htmlFor="codex-thinking">Thinking level / 思考の深さ</label>
+            <select id="codex-thinking" style={inputStyle} value={codexReasoningEffort} disabled={!codexModel || thinkingLevels.length === 0}
+              onChange={(e) => setCodexReasoningEffort(e.target.value)}>
+              <option value="">{selectedCodexModel ? `Model default / モデルの既定 (${selectedCodexModel.defaultReasoningEffort || "auto"})` : "CLI default / CLIの既定"}</option>
+              {thinkingLevels.map((level) => <option key={level} value={level}>{thinkingLabels[level] || level}</option>)}
+              {codexReasoningEffort && !thinkingLevels.includes(codexReasoningEffort) && <option value={codexReasoningEffort}>{codexReasoningEffort} (saved)</option>}
+            </select>
+            <p style={hintStyle}>{selectedCodexModel ? "モデルに対応する思考レベルを選択します。深く考えるほど回答に時間がかかる場合があります。" : codexModel ? "手動入力したモデルで利用できる思考レベルを選んでください。" : "モデルを選ぶとThinking levelを変更できます。CLI defaultは普段のCodex設定を使います。"}</p>
             <p style={hintStyle}>Install Codex CLI and run <code>codex login</code> once. Komodo uses that login, so no chat API key is needed here. Answers arrive when the CLI finishes.</p>
             <p style={hintStyle}>Your question and document excerpts are sent through your configured Codex provider. Embeddings are configured separately below.</p>
             <p style={hintStyle}>Codex sessions are saved automatically. 質問・参照したPDFの抜粋・回答はCodexのセッション履歴に保存されます。</p>

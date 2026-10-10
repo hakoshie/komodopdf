@@ -3,7 +3,8 @@ import { expect, test } from "@playwright/test";
 test.beforeEach(async ({ page }) => {
   await page.goto("/tests/fixtures/index.html");
   await page.getByRole("button", { name: "Open PDF", exact: true }).click();
-  await expect(page.locator("[data-page]")).toHaveCount(12);
+  // The first PDF.js worker load can be slow on a cold development server.
+  await expect(page.locator("[data-page]")).toHaveCount(12, { timeout: 15000 });
   await expect(page.locator('[data-page="1"] .textLayer')).toContainText("Page 1:");
 });
 
@@ -234,12 +235,58 @@ test("Ask Komodo closes and restores its width, conversation, draft and PDF read
 test("Codex settings hide the chat key and survive reopening", async ({ page }) => {
   await page.getByTitle("Settings", { exact: true }).click();
   await page.getByLabel("Provider", { exact: true }).selectOption("codex");
-  await page.getByLabel("Codex model (optional)", { exact: true }).fill("my-codex-model");
+  await page.getByLabel("Codex model", { exact: true }).selectOption("__custom__");
+  await page.getByLabel("Custom Codex model", { exact: true }).fill("my-codex-model");
+  await page.getByLabel("Thinking level / 思考の深さ", { exact: true }).selectOption("high");
   await expect(page.locator('input[type="password"]')).toHaveCount(0);
   await page.getByRole("button", { name: "Save", exact: true }).click();
   await page.getByTitle("Settings", { exact: true }).click();
   await expect(page.getByLabel("Provider", { exact: true })).toHaveValue("codex");
-  await expect(page.getByLabel("Codex model (optional)", { exact: true })).toHaveValue("my-codex-model");
+  await expect(page.getByLabel("Codex model", { exact: true })).toHaveValue("my-codex-model");
+  await expect(page.getByLabel("Thinking level / 思考の深さ", { exact: true })).toHaveValue("high");
+});
+
+test("Codex model dropdown restricts thinking levels and saves the chosen model and effort", async ({ page }) => {
+  await page.getByTitle("Settings", { exact: true }).click();
+  await page.getByLabel("Provider", { exact: true }).selectOption("codex");
+  const model = page.getByLabel("Codex model", { exact: true });
+  const thinking = page.getByLabel("Thinking level / 思考の深さ", { exact: true });
+  await expect(thinking).toBeDisabled();
+  await expect(model.locator('option[value="test-deep"]')).toHaveCount(1);
+  await model.selectOption("test-deep");
+  await thinking.selectOption("high");
+  await expect(thinking.locator('option[value="ultra"]')).toHaveCount(1);
+  await model.selectOption("test-fast");
+  await expect(thinking).toHaveValue("");
+  await expect(thinking.locator('option[value="high"]')).toHaveCount(0);
+  await expect(thinking.locator('option[value="ultra"]')).toHaveCount(0);
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await page.getByTitle("Settings", { exact: true }).click();
+  await expect(model).toHaveValue("test-fast");
+  await expect(thinking).toHaveValue("low");
+  await model.selectOption("test-deep");
+  await thinking.selectOption("xhigh");
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await page.getByTitle("Settings", { exact: true }).click();
+  await expect(model).toHaveValue("test-deep");
+  await expect(model.locator('option[value="test-deep"]')).toHaveText("Deep test model");
+  await expect(thinking).toHaveValue("xhigh");
+  await page.screenshot({ path: "test-results/codex-model-settings.png" });
+});
+
+test("Codex model list failure preserves a custom model and recovers after correcting the CLI path", async ({ page }) => {
+  await page.getByTitle("Settings", { exact: true }).click();
+  await page.getByLabel("Provider", { exact: true }).selectOption("codex");
+  await page.getByLabel("Codex executable", { exact: true }).fill("missing-codex");
+  await expect(page.getByRole("alert")).toContainText("Cannot load Codex models");
+  await page.getByLabel("Codex model", { exact: true }).selectOption("__custom__");
+  await page.getByLabel("Custom Codex model", { exact: true }).fill("private-model");
+  await page.getByLabel("Codex executable", { exact: true }).fill("codex");
+  await expect(page.getByLabel("Codex model", { exact: true }).locator('option[value="test-deep"]')).toHaveCount(1);
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await page.getByTitle("Settings", { exact: true }).click();
+  await expect(page.getByLabel("Codex model", { exact: true })).toHaveValue("private-model");
 });
 
 test("Japanese selection questions use the saved response language", async ({ page }) => {

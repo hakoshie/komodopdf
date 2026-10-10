@@ -110,7 +110,12 @@ codex login
 In Komodo's Settings, choose **Chat → Provider → Codex CLI (existing login)**.
 Leave **Codex executable** as `codex` when it is installed on PATH; an explicit
 `codex.exe` or npm `bin/codex.js` path also works, including paths with spaces.
-Leave the Codex model blank to use the CLI's configured default. Chat API settings
+Choose **Codex model** and **Thinking level / 思考の深さ** from the dropdowns.
+Komodo loads the available models and supported thinking levels from your configured
+CLI; **Refresh / 更新** reloads the list. Select **CLI default** to keep the CLI's
+configured model and thinking level, or choose a model and its default or explicit
+thinking level. **Custom model / 手動入力** retains support for private/custom model IDs.
+These choices are saved and apply to the next question. Chat API settings
 are preserved when switching providers. Configure embeddings separately: download a
 local model (choose `multilingual-e5-small` for Japanese) or use a remote endpoint.
 Existing document indexes are rebuilt once to update the citation highlight coordinates.

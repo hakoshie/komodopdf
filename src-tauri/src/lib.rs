@@ -157,7 +157,19 @@ fn get_settings(state: tauri::State<'_, Arc<Db>>) -> Result<Settings, String> {
 }
 
 #[tauri::command]
+async fn list_codex_models(
+    executable: String,
+) -> Result<Vec<crate::llm::chat::codex::CodexModelOption>, String> {
+    crate::llm::chat::codex::list_models(&executable)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 fn set_settings(state: tauri::State<'_, Arc<Db>>, settings: Settings) -> Result<(), String> {
+    if !crate::llm::chat::codex::valid_reasoning_effort(&settings.codex_reasoning_effort) {
+        return Err("Invalid Codex thinking level".into());
+    }
     state.set_settings(&settings).map_err(|e| e.to_string())?;
     set_log_level(&settings.log_level);
     Ok(())
@@ -578,6 +590,7 @@ pub fn run() {
             is_indexed,
             delete_document,
             get_settings,
+            list_codex_models,
             set_settings,
             is_audit_enabled,
             write_audit_file,

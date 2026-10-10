@@ -9,6 +9,7 @@ pub fn provider(
         "codex" => Ok(Box::new(codex::CodexProvider::new(
             settings.codex_path.clone(),
             settings.codex_model.clone(),
+            settings.codex_reasoning_effort.clone(),
         ))),
         "openai" => Ok(Box::new(openai_compat::OpenAiCompatibleProvider::new(
             settings.chat_base_url.clone(),

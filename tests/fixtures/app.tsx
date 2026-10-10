@@ -7,6 +7,7 @@ import { useReaderStore } from "../../src/state/useReaderStore";
 import { extractPageContent } from "../../src/pdf/extract";
 
 const settings = { chatBackend: "openai", codexPath: "codex", codexModel: "", chatBaseUrl: "http://localhost:1234/v1", chatModel: "test",
+  codexReasoningEffort: "",
   embedBackend: "local", embedModel: "bge-small-en-v1.5", topK: 6, persona: "Explain simply", responseLanguage: "auto", configured: true, logLevel: "info" };
 let asked = 0;
 mockIPC(async (cmd, args: any) => {
@@ -15,6 +16,12 @@ mockIPC(async (cmd, args: any) => {
     case "set_settings": Object.assign(settings, args.settings); return;
     case "has_api_key": return false;
     case "list_embedding_models": return [];
+    case "list_codex_models":
+      if (args.executable === "missing-codex") throw new Error("Cannot load Codex models. Check the CLI path and login, then retry.");
+      return [
+        { id: "test-deep", displayName: "Deep test model", defaultReasoningEffort: "medium", supportedReasoningEfforts: ["low", "medium", "high", "xhigh", "ultra"] },
+        { id: "test-fast", displayName: "Fast test model", defaultReasoningEffort: "low", supportedReasoningEfforts: ["low", "medium"] },
+      ];
     case "test_connection": return { chatOk: true, embedOk: true };
     case "plugin:dialog|open": return "fixture.pdf";
     case "plugin:fs|read_file": return Array.from(fixturePdf());
