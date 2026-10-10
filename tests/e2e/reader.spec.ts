@@ -246,6 +246,27 @@ test("Codex settings hide the chat key and survive reopening", async ({ page }) 
   await expect(page.getByLabel("Thinking level / 思考の深さ", { exact: true })).toHaveValue("high");
 });
 
+test("Codex web search modes persist and source links open outside the reader", async ({ page }) => {
+  await page.getByTitle("Settings", { exact: true }).click();
+  await page.getByLabel("Provider", { exact: true }).selectOption("codex");
+  const search = page.getByLabel("Web search / ウェブ検索", { exact: true });
+  await expect(search).toHaveValue("live");
+  for (const mode of ["cached", "disabled", "live"]) {
+    await search.selectOption(mode);
+    await page.getByRole("button", { name: "Save", exact: true }).click();
+    await page.getByTitle("Settings", { exact: true }).click();
+    await expect(search).toHaveValue(mode);
+  }
+  await page.screenshot({ path: "test-results/codex-web-search-settings.png" });
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  await page.getByPlaceholder("Ask anything...").fill("Search the web");
+  await page.getByPlaceholder("Ask anything...").press("Enter");
+  await page.getByRole("link", { name: "Web source", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => (window as any).__openedUrls)).toEqual(["https://example.com/research"]);
+  await expect(page.locator("[data-page]")).toHaveCount(12);
+  await expect(page.getByRole("button", { name: "p.2", exact: true })).toBeVisible();
+});
+
 test("Codex model dropdown restricts thinking levels and saves the chosen model and effort", async ({ page }) => {
   await page.getByTitle("Settings", { exact: true }).click();
   await page.getByLabel("Provider", { exact: true }).selectOption("codex");

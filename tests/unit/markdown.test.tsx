@@ -35,4 +35,11 @@ $$`} />);
     expect(html).not.toContain("<script>");
     expect(html).not.toContain('href="javascript:');
   });
+
+  it("renders web sources as external links and does not expose local file links", () => {
+    const html = renderToStaticMarkup(<MarkdownRenderer content="[Source](https://example.com/research) [Local](file:///C:/secret.txt)" />);
+    expect(html).toContain('href="https://example.com/research"');
+    expect(html).toContain('rel="noopener noreferrer"');
+    expect(html).not.toContain('href="file:');
+  });
 });

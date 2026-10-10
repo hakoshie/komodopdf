@@ -18,6 +18,8 @@ pub struct Settings {
     pub codex_model: String,
     #[serde(default)]
     pub codex_reasoning_effort: String,
+    #[serde(default = "default_codex_web_search")]
+    pub codex_web_search: String,
     pub chat_base_url: String,
     pub chat_model: String,
     pub embed_backend: String,
@@ -38,6 +40,9 @@ fn default_chat_backend() -> String {
 fn default_codex_path() -> String {
     "codex".to_string()
 }
+fn default_codex_web_search() -> String {
+    "live".to_string()
+}
 fn default_response_language() -> String {
     "auto".to_string()
 }
@@ -49,6 +54,7 @@ impl Default for Settings {
             codex_path: default_codex_path(),
             codex_model: String::new(),
             codex_reasoning_effort: String::new(),
+            codex_web_search: default_codex_web_search(),
             chat_base_url: "https://api.openai.com/v1".to_string(),
             chat_model: "gpt-4o-mini".to_string(),
             embed_backend: "local".to_string(),
@@ -175,6 +181,7 @@ impl Db {
                 "codex_path" => settings.codex_path = value,
                 "codex_model" => settings.codex_model = value,
                 "codex_reasoning_effort" => settings.codex_reasoning_effort = value,
+                "codex_web_search" => settings.codex_web_search = value,
                 "chat_base_url" => settings.chat_base_url = value,
                 "chat_model" => settings.chat_model = value,
                 "embed_backend" => settings.embed_backend = value,
@@ -200,6 +207,7 @@ impl Db {
             ("chat_backend", settings.chat_backend.as_str()),
             ("codex_path", settings.codex_path.as_str()),
             ("codex_model", settings.codex_model.as_str()),
+            ("codex_web_search", settings.codex_web_search.as_str()),
             (
                 "codex_reasoning_effort",
                 settings.codex_reasoning_effort.as_str(),
@@ -329,6 +337,7 @@ mod tests {
             "codexPath",
             "codexModel",
             "codexReasoningEffort",
+            "codexWebSearch",
             "responseLanguage",
         ] {
             legacy.as_object_mut().unwrap().remove(key);
@@ -337,10 +346,12 @@ mod tests {
         assert_eq!(settings.chat_backend, "openai");
         assert_eq!(settings.response_language, "auto");
         assert_eq!(settings.codex_reasoning_effort, "");
+        assert_eq!(settings.codex_web_search, "live");
         settings.chat_backend = "codex".into();
         settings.codex_path = "C:/CLI with spaces/codex.exe".into();
         settings.codex_model = "custom-model".into();
         settings.codex_reasoning_effort = "high".into();
+        settings.codex_web_search = "cached".into();
         settings.response_language = "ja".into();
         let db = db();
         db.set_settings(&settings).unwrap();
@@ -349,6 +360,7 @@ mod tests {
         assert_eq!(loaded.codex_path, settings.codex_path);
         assert_eq!(loaded.codex_model, settings.codex_model);
         assert_eq!(loaded.codex_reasoning_effort, "high");
+        assert_eq!(loaded.codex_web_search, "cached");
         assert_eq!(loaded.response_language, "ja");
     }
 

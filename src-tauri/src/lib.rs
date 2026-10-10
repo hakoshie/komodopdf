@@ -170,6 +170,9 @@ fn set_settings(state: tauri::State<'_, Arc<Db>>, settings: Settings) -> Result<
     if !crate::llm::chat::codex::valid_reasoning_effort(&settings.codex_reasoning_effort) {
         return Err("Invalid Codex thinking level".into());
     }
+    if !crate::llm::chat::codex::valid_web_search(&settings.codex_web_search) {
+        return Err("Invalid Codex web search mode".into());
+    }
     state.set_settings(&settings).map_err(|e| e.to_string())?;
     set_log_level(&settings.log_level);
     Ok(())
@@ -370,7 +373,13 @@ async fn ask(
 
     // Stream immediately in both cases — no double generation, no judge pause.
     if !use_rag {
-        let note = if settings.response_language == "ja" {
+        let search_enabled =
+            settings.chat_backend == "codex" && settings.codex_web_search != "disabled";
+        let note = if search_enabled && settings.response_language == "ja" {
+            "> _文書内に十分な根拠が見つからなかったため、必要に応じて一般知識やウェブ検索で補います。_\n\n"
+        } else if search_enabled {
+            "> _The document didn't contain a strong answer here; general knowledge or web search may supplement it._\n\n"
+        } else if settings.response_language == "ja" {
             "> _文書内に十分な根拠が見つからなかったため、主に一般知識に基づいて回答します。_\n\n"
         } else {
             "> _The document didn't contain a strong answer here, so this draws mainly on general knowledge._\n\n"

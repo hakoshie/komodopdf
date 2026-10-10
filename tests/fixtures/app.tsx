@@ -8,8 +8,11 @@ import { extractPageContent } from "../../src/pdf/extract";
 
 const settings = { chatBackend: "openai", codexPath: "codex", codexModel: "", chatBaseUrl: "http://localhost:1234/v1", chatModel: "test",
   codexReasoningEffort: "",
+  codexWebSearch: "live",
   embedBackend: "local", embedModel: "bge-small-en-v1.5", topK: 6, persona: "Explain simply", responseLanguage: "auto", configured: true, logLevel: "info" };
 let asked = 0;
+const openedUrls: string[] = [];
+(window as any).__openedUrls = openedUrls;
 mockIPC(async (cmd, args: any) => {
   switch (cmd) {
     case "get_settings": return settings;
@@ -23,6 +26,7 @@ mockIPC(async (cmd, args: any) => {
         { id: "test-fast", displayName: "Fast test model", defaultReasoningEffort: "low", supportedReasoningEfforts: ["low", "medium"] },
       ];
     case "test_connection": return { chatOk: true, embedOk: true };
+    case "plugin:opener|open_url": openedUrls.push(args.url); return;
     case "plugin:dialog|open": return "fixture.pdf";
     case "plugin:fs|read_file": return Array.from(fixturePdf());
     case "is_indexed": return true;
@@ -35,7 +39,8 @@ mockIPC(async (cmd, args: any) => {
       args.channel.onmessage({ kind: "token", data: String.raw`The result is \(E=mc^2\) [1].
 
 \[\int_0^1 x\,dx = \frac{1}{2}\]` + (args.question === "Explain the formula"
-        ? "\n\n| Term | Value |\n| --- | --- |\n| x | 1 |\n\n~~~js\nconst x = 1;\n~~~" : "") });
+        ? "\n\n| Term | Value |\n| --- | --- |\n| x | 1 |\n\n~~~js\nconst x = 1;\n~~~" : args.question === "Search the web"
+        ? "\n\n[Web source](https://example.com/research)" : "") });
       args.channel.onmessage({ kind: "done" });
       return;
     }

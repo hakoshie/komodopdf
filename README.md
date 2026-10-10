@@ -115,6 +115,11 @@ Komodo loads the available models and supported thinking levels from your config
 CLI; **Refresh / 更新** reloads the list. Select **CLI default** to keep the CLI's
 configured model and thinking level, or choose a model and its default or explicit
 thinking level. **Custom model / 手動入力** retains support for private/custom model IDs.
+**Web search / ウェブ検索** defaults to **Live**, including existing installations.
+Choose **Cached** for indexed results or **Off** to answer without web search.
+Codex can search when you ask it to verify online or when the PDF lacks information.
+Web sources use clickable links that open in your default browser; numbered `[n]`
+citations still refer to the PDF. Search queries are sent to the search service.
 These choices are saved and apply to the next question. Chat API settings
 are preserved when switching providers. Configure embeddings separately: download a
 local model (choose `multilingual-e5-small` for Japanese) or use a remote endpoint.
@@ -123,7 +128,8 @@ Existing document indexes are rebuilt once to update the citation highlight coor
 Komodo passes the question, recent conversation, and retrieved PDF passages to
 [`codex exec`](https://learn.chatgpt.com/docs/non-interactive-mode) through stdin in
 an empty temporary directory. It requests read-only execution, disables shell,
-web search, MCP servers, apps, plugins and hooks for this invocation, and saves
+MCP servers, apps, plugins and hooks for this invocation, permits built-in web
+search according to the selected mode, and saves
 CLI session rollouts in the configured Codex home (normally `~/.codex/sessions/`).
 Each question starts a separate saved session containing the question, recent
 conversation, retrieved PDF passages and reply. Codex uses its configured

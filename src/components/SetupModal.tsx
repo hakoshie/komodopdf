@@ -47,6 +47,7 @@ export default function SetupModal() {
   const [codexPath, setCodexPath] = useState("codex");
   const [codexModel, setCodexModel] = useState("");
   const [codexReasoningEffort, setCodexReasoningEffort] = useState("");
+  const [codexWebSearch, setCodexWebSearch] = useState("live");
   const [codexModels, setCodexModels] = useState<CodexModelOption[]>([]);
   const [codexModelsLoading, setCodexModelsLoading] = useState(false);
   const [codexModelsError, setCodexModelsError] = useState<string | null>(null);
@@ -93,6 +94,7 @@ export default function SetupModal() {
         setCodexPath(settings.codexPath || "codex");
         setCodexModel(settings.codexModel || "");
         setCodexReasoningEffort(settings.codexReasoningEffort || "");
+        setCodexWebSearch(settings.codexWebSearch || "live");
         setLocalBaseUrl(settings.chatBaseUrl || "https://api.openai.com/v1");
         setLocalChatModel(settings.chatModel || "gpt-4o-mini");
         setLocalEmbedModel(settings.embedModel || "nomic-embed-text-v1.5");
@@ -170,6 +172,7 @@ export default function SetupModal() {
         settings: {
           chatBackend, codexPath, codexModel,
           codexReasoningEffort: codexReasoningEffort || selectedCodexModel?.defaultReasoningEffort || "",
+          codexWebSearch,
           chatBaseUrl: localBaseUrl,
           chatModel: localChatModel,
           embedBackend: embedBackend,
@@ -213,6 +216,7 @@ export default function SetupModal() {
         settings: {
           chatBackend, codexPath, codexModel,
           codexReasoningEffort: codexReasoningEffort || selectedCodexModel?.defaultReasoningEffort || "",
+          codexWebSearch,
           chatBaseUrl: localBaseUrl,
           chatModel: localChatModel,
           embedBackend: embedBackend,
@@ -349,6 +353,13 @@ export default function SetupModal() {
               {codexReasoningEffort && !thinkingLevels.includes(codexReasoningEffort) && <option value={codexReasoningEffort}>{codexReasoningEffort} (saved)</option>}
             </select>
             <p style={hintStyle}>{selectedCodexModel ? "モデルに対応する思考レベルを選択します。深く考えるほど回答に時間がかかる場合があります。" : codexModel ? "手動入力したモデルで利用できる思考レベルを選んでください。" : "モデルを選ぶとThinking levelを変更できます。CLI defaultは普段のCodex設定を使います。"}</p>
+            <label style={labelStyle} htmlFor="codex-web-search">Web search / ウェブ検索</label>
+            <select id="codex-web-search" style={inputStyle} value={codexWebSearch} onChange={(e) => setCodexWebSearch(e.target.value)}>
+              <option value="live">Live / 最新のウェブ（標準）</option>
+              <option value="cached">Cached / キャッシュを検索</option>
+              <option value="disabled">Off / 検索しない</option>
+            </select>
+            <p style={hintStyle}>検索を頼んだときや、PDFに情報が足りないときにウェブを参照できます。出典はリンクで表示します。検索語は検索サービスに送られます。</p>
             <p style={hintStyle}>Install Codex CLI and run <code>codex login</code> once. Komodo uses that login, so no chat API key is needed here. Answers arrive when the CLI finishes.</p>
             <p style={hintStyle}>Your question and document excerpts are sent through your configured Codex provider. Embeddings are configured separately below.</p>
             <p style={hintStyle}>Codex sessions are saved automatically. 質問・参照したPDFの抜粋・回答はCodexのセッション履歴に保存されます。</p>
