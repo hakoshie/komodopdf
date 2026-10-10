@@ -212,7 +212,7 @@ textarea:focus-visible {
   border: 1px solid var(--border);
   border-radius: 6px;
   overflow-x: auto;
-  font-size: 12px;
+  font-size: 0.9230769231em;
   line-height: 1.4;
 }
 
@@ -255,7 +255,7 @@ textarea:focus-visible {
   width: 100%;
   border-collapse: collapse;
   margin: 0 0 8px;
-  font-size: 12px;
+  font-size: 0.9230769231em;
 }
 
 .ai-markdown th,

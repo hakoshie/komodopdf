@@ -27,7 +27,8 @@ mockIPC(async (cmd, args: any) => {
       args.channel.onmessage({ kind: "sources", data: [source] });
       args.channel.onmessage({ kind: "token", data: String.raw`The result is \(E=mc^2\) [1].
 
-\[\int_0^1 x\,dx = \frac{1}{2}\]` });
+\[\int_0^1 x\,dx = \frac{1}{2}\]` + (args.question === "Explain the formula"
+        ? "\n\n| Term | Value |\n| --- | --- |\n| x | 1 |\n\n~~~js\nconst x = 1;\n~~~" : "") });
       args.channel.onmessage({ kind: "done" });
       return;
     }

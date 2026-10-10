@@ -34,6 +34,7 @@ navigation, and text selection all work whether or not you ever turn the AI pane
 ### Reading
 - 📖 Open any PDF with smooth continuous scroll
 - 🔍 Zoom in/out, fit-width, fit-page
+- Hold **Ctrl** and scroll the mouse wheel to zoom the pane under the pointer: PDF magnification over the document, or conversation/input text size over Ask Komodo (including formulas, tables and code). Scroll up to enlarge and down to reduce; scrolling without Ctrl stays normal.
 - ↔️ Drag the divider between the PDF and Ask Komodo to resize both panes. PDFs open fitted to the available width; resizing the divider, outline or window automatically refits manual zoom while preserving your reading position.
 - ✦ Close Ask Komodo with its × button and reopen it with **✦ Ask** in the toolbar. Your conversation, draft and previous pane width are preserved.
 - 🗂️ Document outline / bookmarks navigation

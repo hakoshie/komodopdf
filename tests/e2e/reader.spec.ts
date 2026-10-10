@@ -51,6 +51,67 @@ test("math renders and earlier citations retain their own page", async ({ page }
   await page.screenshot({ path: "test-results/reader-math.png" });
 });
 
+test("Ctrl+wheel zooms the hovered pane without resizing the toolbar or the other pane", async ({ page }) => {
+  const input = page.getByPlaceholder("Ask anything...");
+  await input.fill("Explain the formula");
+  await input.press("Enter");
+  const answer = page.locator(".ai-markdown").first();
+  const math = answer.locator(".katex").first();
+  await expect(math).toBeVisible();
+  const fontSize = () => answer.evaluate((el) => parseFloat(getComputedStyle(el).fontSize));
+  const originalFont = await fontSize();
+  const originalMathFont = await math.evaluate((el) => parseFloat(getComputedStyle(el).fontSize));
+  const originalTableFont = await answer.locator("table").evaluate((el) => parseFloat(getComputedStyle(el).fontSize));
+  const originalCodeFont = await answer.locator("pre").evaluate((el) => parseFloat(getComputedStyle(el).fontSize));
+  const pdf = page.locator('[data-page="1"] canvas');
+  const pdfWidth = () => pdf.evaluate((el) => el.getBoundingClientRect().width);
+  const originalPdfWidth = await pdfWidth();
+  const openButton = page.getByRole("button", { name: "Open PDF", exact: true });
+  const originalButton = await openButton.boundingBox();
+
+  await answer.hover();
+  await page.keyboard.down("Control");
+  await page.mouse.wheel(0, -120);
+  await page.keyboard.up("Control");
+  await expect.poll(fontSize).toBeGreaterThan(originalFont);
+  await expect.poll(() => math.evaluate((el) => parseFloat(getComputedStyle(el).fontSize))).toBeGreaterThan(originalMathFont);
+  expect(await answer.locator("table").evaluate((el) => parseFloat(getComputedStyle(el).fontSize))).toBeGreaterThan(originalTableFont);
+  expect(await answer.locator("pre").evaluate((el) => parseFloat(getComputedStyle(el).fontSize))).toBeGreaterThan(originalCodeFont);
+  expect(await pdfWidth()).toBeCloseTo(originalPdfWidth, 0);
+  expect((await openButton.boundingBox())!.width).toBeCloseTo(originalButton!.width, 0);
+  const enlargedFont = await fontSize();
+  await page.getByRole("button", { name: "Close Ask Komodo", exact: true }).click();
+  await page.getByTitle("Show Ask Komodo", { exact: true }).click();
+  expect(await fontSize()).toBeCloseTo(enlargedFont, 2);
+
+  await answer.hover();
+  await page.keyboard.down("Control");
+  await page.mouse.wheel(0, 120);
+  await page.keyboard.up("Control");
+  await expect.poll(fontSize).toBeCloseTo(originalFont, 2);
+  const reader = page.getByLabel("PDF pages");
+  await expect(page.getByTitle("Fit width", { exact: true })).toHaveAttribute("aria-pressed", "true");
+  const fittedWidth = await pdfWidth();
+  await reader.hover();
+  await page.keyboard.down("Control");
+  await page.mouse.wheel(0, -120);
+  await page.keyboard.up("Control");
+  await expect.poll(pdfWidth).toBeGreaterThan(fittedWidth);
+  await expect(page.getByTitle("Fit width", { exact: true })).toHaveAttribute("aria-pressed", "false");
+  expect(await fontSize()).toBeCloseTo(originalFont, 2);
+  const enlargedPdfWidth = await pdfWidth();
+  await reader.hover();
+  await page.keyboard.down("Control");
+  await page.mouse.wheel(0, 120);
+  await page.keyboard.up("Control");
+  await expect.poll(pdfWidth).toBeLessThan(enlargedPdfWidth);
+  const zoomedWidth = await pdfWidth();
+  await page.mouse.wheel(0, 240);
+  await expect.poll(() => reader.evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
+  expect(await pdfWidth()).toBeCloseTo(zoomedWidth, 0);
+  expect((await openButton.boundingBox())!.width).toBeCloseTo(originalButton!.width, 0);
+});
+
 test("outline toggling keeps the reading position and panels within the window", async ({ page }) => {
   await page.setViewportSize({ width: 1224, height: 800 });
   const reader = page.getByLabel("PDF pages");

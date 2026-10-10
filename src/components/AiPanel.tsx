@@ -4,6 +4,7 @@ import { Channel } from "@tauri-apps/api/core";
 import { useReaderStore } from "../state/useReaderStore";
 import MarkdownRenderer from "./MarkdownRenderer";
 import { responseLanguage, selectionQuestion } from "../utils/responseLanguage";
+import { useCtrlWheelZoom } from "../hooks/useCtrlWheelZoom";
 
 interface ChatEvent {
   kind: "sources" | "token" | "done" | "error";
@@ -12,8 +13,12 @@ interface ChatEvent {
 
 export default function AiPanel() {
   const [input, setInput] = useState("");
+  const [textZoom, setTextZoom] = useState(1);
+  const panelRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  useCtrlWheelZoom(panelRef, (factor) => setTextZoom((zoom) => Math.max(0.75, Math.min(2.5, zoom * factor))));
+  useEffect(() => { autoResize(); }, [textZoom]);
 
   function autoResize() {
     const ta = textareaRef.current;
@@ -212,7 +217,7 @@ export default function AiPanel() {
   }, [messages, streaming]);
 
   return (
-    <div id="ask-komodo-content"
+    <div id="ask-komodo-content" ref={panelRef}
       style={{
         display: "flex",
         flexDirection: "column",
@@ -262,7 +267,7 @@ export default function AiPanel() {
         </div>
       </div>
 
-      <div ref={scrollRef} style={{ flex: 1, padding: 16, overflow: "auto" }}>
+      <div ref={scrollRef} aria-label="Ask Komodo conversation" style={{ flex: 1, padding: 16, overflow: "auto", fontSize: 13 * textZoom }}>
         {messages.length === 0 && !fileName && (
           <div
             style={{
@@ -270,7 +275,7 @@ export default function AiPanel() {
               borderRadius: 8,
               backgroundColor: "var(--surface)",
               border: "1px solid var(--border)",
-              fontSize: 13,
+              fontSize: "inherit",
               lineHeight: 1.5,
               color: "var(--text-muted)",
             }}
@@ -291,7 +296,7 @@ export default function AiPanel() {
           <div key={i} style={{ marginBottom: 16 }}>
             <div
               style={{
-                fontSize: 11,
+                fontSize: 11 * textZoom,
                 color: "var(--text-muted)",
                 textTransform: "uppercase",
                 letterSpacing: 1,
@@ -307,7 +312,7 @@ export default function AiPanel() {
                 backgroundColor:
                   msg.role === "user" ? "var(--surface)" : "var(--surface-lowered)",
                 border: "1px solid var(--border)",
-                fontSize: 13,
+                fontSize: "inherit",
                 lineHeight: 1.5,
                 whiteSpace: msg.role === "user" ? "pre-wrap" : undefined,
               }}
@@ -339,7 +344,7 @@ export default function AiPanel() {
                         backgroundColor: "rgba(245, 158, 11, 0.15)",
                         border: "1px solid rgba(245, 158, 11, 0.4)",
                         color: "var(--ai-accent)",
-                        fontSize: 12,
+                        fontSize: 12 * textZoom,
                         fontWeight: 500,
                         cursor: "pointer",
                       }}
@@ -364,7 +369,7 @@ export default function AiPanel() {
                 animation: "pulse 1.2s infinite ease-in-out",
               }}
             />
-            <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
+            <span style={{ fontSize: 12 * textZoom, color: "var(--text-muted)" }}>
               Thinking...
             </span>
           </div>
@@ -428,7 +433,7 @@ export default function AiPanel() {
               border: "1px solid var(--border)",
               backgroundColor: "var(--surface)",
               color: "var(--text)",
-              fontSize: 14,
+              fontSize: 14 * textZoom,
               outline: "none",
               fontFamily: "inherit",
               resize: "none",

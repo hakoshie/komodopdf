@@ -3,6 +3,7 @@ import type { PDFDocumentProxy } from "pdfjs-dist";
 import { useReaderStore } from "../state/useReaderStore";
 import { renderPageToCanvas } from "../pdf/pageRender";
 import { buildTextLayer } from "../pdf/textLayer";
+import { useCtrlWheelZoom } from "../hooks/useCtrlWheelZoom";
 
 interface PageSize { width: number; height: number }
 
@@ -87,6 +88,10 @@ export default function ReaderPane() {
   const fitMode = useReaderStore((s) => s.fitMode);
   const navigation = useReaderStore((s) => s.navigationRequest);
   const scrollRef = useRef<HTMLDivElement>(null);
+  useCtrlWheelZoom(scrollRef, (factor) => {
+    const store = useReaderStore.getState();
+    store.setScale((store.fitMode ? store.displayScale : store.scale) * factor);
+  }, pdfDoc !== null);
   const [layout, setLayout] = useState<{ doc: PDFDocumentProxy; pages: PageSize[] } | null>(null);
   const [bounds, setBounds] = useState({ width: 0, height: 0 });
   const [error, setError] = useState<string | null>(null);
