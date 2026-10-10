@@ -24,5 +24,44 @@ pub fn data_dir(app: &impl Manager<tauri::Wry>) -> PathBuf {
             }
         }
     }
-    app.path().app_data_dir().expect("failed to get app data dir")
+    app.path()
+        .app_data_dir()
+        .expect("failed to get app data dir")
+}
+
+pub fn valid_conversation_id(id: &str) -> bool {
+    id.len() == 36
+        && id.bytes().enumerate().all(|(i, byte)| {
+            if matches!(i, 8 | 13 | 18 | 23) {
+                byte == b'-'
+            } else {
+                byte.is_ascii_hexdigit()
+            }
+        })
+}
+
+pub fn history_dir(app: &impl Manager<tauri::Wry>) -> anyhow::Result<PathBuf> {
+    Ok(if is_portable() {
+        data_dir(app)
+    } else {
+        app.path().document_dir()?.join("Komodo PDF")
+    })
+}
+
+pub fn conversation_dir(
+    app: &impl Manager<tauri::Wry>,
+    file_hash: &str,
+    conversation_id: &str,
+) -> anyhow::Result<PathBuf> {
+    anyhow::ensure!(
+        file_hash.len() == 64
+            && file_hash.bytes().all(|b| b.is_ascii_hexdigit())
+            && valid_conversation_id(conversation_id),
+        "Invalid PDF or conversation ID"
+    );
+    let root = history_dir(app)?;
+    Ok(root
+        .join("conversations")
+        .join(file_hash)
+        .join(conversation_id))
 }

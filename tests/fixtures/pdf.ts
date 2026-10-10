@@ -1,5 +1,5 @@
 // A real PDF with alternating page geometry exercises PDF.js layout and workers.
-export function fixturePdf(): Uint8Array {
+export function fixturePdf(label = ""): Uint8Array {
   const objects = ["<< /Type /Catalog /Pages 2 0 R >>", "", "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"];
   const pages: number[] = [];
   for (let page = 1; page <= 12; page++) {
@@ -7,7 +7,7 @@ export function fixturePdf(): Uint8Array {
     pages.push(number);
     const [width, height] = page % 2 ? [600, 800] : [800, 600];
     objects.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${width} ${height}] /Resources << /Font << /F1 3 0 R >> >> /Contents ${number + 1} 0 R >>`);
-    const text = `BT /F1 24 Tf 50 ${height - 80} Td (Page ${page}: Komodo PDF scroll regression) Tj ET\n`;
+    const text = `BT /F1 24 Tf 50 ${height - 80} Td (Page ${page}: Komodo PDF scroll regression${label}) Tj ET\n`;
     objects.push(`<< /Length ${text.length} >>\nstream\n${text}endstream`);
   }
   objects[1] = `<< /Type /Pages /Kids [${pages.map((n) => `${n} 0 R`).join(" ")}] /Count 12 >>`;

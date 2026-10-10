@@ -125,14 +125,33 @@ are preserved when switching providers. Configure embeddings separately: downloa
 local model (choose `multilingual-e5-small` for Japanese) or use a remote endpoint.
 Existing document indexes are rebuilt once to update the citation highlight coordinates.
 
+### Saved conversations for each PDF
+
+**Ask Komodo → Chat history / 履歴** lists conversations for the open PDF.
+Use **＋ / New chat** to start another conversation, or select a saved one to continue.
+Reopening the PDF restores the most recently updated conversation, including answers,
+math, web links and PDF citation targets. PDF contents identify the history, so moving
+or renaming an identical PDF retains its conversations. Reindexing preserves chats.
+Both Codex CLI and OpenAI-compatible API conversations are saved locally.
+
+On a standard installation, history lives in **Documents/Komodo PDF/conversations.sqlite**.
+Codex uses a stable folder under **Documents/Komodo PDF/conversations/<PDF hash>/<chat ID>**
+and resumes that conversation's saved CLI session. Portable installations use the
+portable `data` directory instead. Existing settings and embedding resources keep
+their original location. Conversations created before this history feature are not
+automatically imported from standalone CLI session files.
+
 Komodo passes the question, recent conversation, and retrieved PDF passages to
 [`codex exec`](https://learn.chatgpt.com/docs/non-interactive-mode) through stdin in
-an empty temporary directory. It requests read-only execution, disables shell,
+that conversation folder. Follow-up questions use `codex exec resume` with its stored
+session ID. It requests read-only execution, disables shell,
 MCP servers, apps, plugins and hooks for this invocation, permits built-in web
 search according to the selected mode, and saves
 CLI session rollouts in the configured Codex home (normally `~/.codex/sessions/`).
-Each question starts a separate saved session containing the question, recent
-conversation, retrieved PDF passages and reply. Codex uses its configured
+The saved CLI session contains the questions, retrieved PDF passages and replies.
+CLI rollouts are separate from ChatGPT's cloud chat history; non-interactive sessions
+can be found with `codex resume --all --include-non-interactive` on supported CLI versions.
+Codex uses its configured
 provider and existing authentication; this is a cloud chat option. The reply appears
 when the CLI completes, rather than token by token. Your saved CLI configuration
 is not modified. Komodo checks the MCP inventory before sending document excerpts

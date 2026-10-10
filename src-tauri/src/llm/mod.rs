@@ -67,6 +67,9 @@ pub enum LlmError {
 #[async_trait::async_trait]
 pub trait LlmProvider: Send + Sync {
     fn id(&self) -> &'static str;
+    fn session_id(&self) -> Option<String> {
+        None
+    }
     async fn chat_stream(
         &self,
         req: ChatRequest,

@@ -51,6 +51,8 @@ interface ReaderState {
   indexState: "idle" | "extracting" | "indexing" | "ready";
   indexProgress: { done: number; total: number } | null;
   messages: Message[];
+  conversationId: string | null;
+  chatHistoryReady: boolean;
   streaming: boolean;
   activeHighlight: { page: number; quads: Quad[] } | null;
   pendingQuestion: string | null;
@@ -120,6 +122,8 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
   indexState: "idle",
   indexProgress: null,
   messages: [],
+  conversationId: null,
+  chatHistoryReady: false,
   streaming: false,
   activeHighlight: null,
   pendingQuestion: null,
@@ -155,6 +159,8 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
         indexState: "idle",
         indexProgress: null,
         messages: [],
+        conversationId: null,
+        chatHistoryReady: false,
         streaming: false,
         activeHighlight: null,
         pendingQuestion: null,
@@ -173,6 +179,8 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
         indexState: "idle",
         indexProgress: null,
         messages: [],
+        conversationId: null,
+        chatHistoryReady: false,
         streaming: false,
         activeHighlight: null,
         pendingQuestion: null,

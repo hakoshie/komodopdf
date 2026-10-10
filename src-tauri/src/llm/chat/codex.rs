@@ -3,6 +3,7 @@ use futures_util::stream::BoxStream;
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
+use std::sync::{Arc, Mutex};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Command;
 
@@ -11,6 +12,8 @@ pub struct CodexProvider {
     model: String,
     reasoning_effort: String,
     web_search: String,
+    workspace: Option<PathBuf>,
+    session: Arc<Mutex<Option<String>>>,
 }
 
 impl CodexProvider {
@@ -25,7 +28,15 @@ impl CodexProvider {
             model,
             reasoning_effort,
             web_search,
+            workspace: None,
+            session: Arc::new(Mutex::new(None)),
         }
+    }
+
+    pub fn in_workspace(mut self, directory: PathBuf, session_id: Option<String>) -> Self {
+        self.workspace = Some(directory);
+        self.session = Arc::new(Mutex::new(session_id));
+        self
     }
 }
 
@@ -277,6 +288,9 @@ impl LlmProvider for CodexProvider {
     fn id(&self) -> &'static str {
         "codex-cli"
     }
+    fn session_id(&self) -> Option<String> {
+        self.session.lock().unwrap().clone()
+    }
 
     async fn chat_stream(
         &self,
@@ -288,23 +302,43 @@ impl LlmProvider for CodexProvider {
         if !valid_web_search(&self.web_search) {
             return Err(LlmError::Provider("Invalid Codex web search mode".into()));
         }
-        let directory = tempfile::Builder::new()
-            .prefix("komodo-codex-")
-            .tempdir()
-            .map_err(|e| LlmError::Provider(e.to_string()))?;
+        let temporary_directory = if self.workspace.is_none() {
+            Some(
+                tempfile::Builder::new()
+                    .prefix("komodo-codex-")
+                    .tempdir()
+                    .map_err(|e| LlmError::Provider(e.to_string()))?,
+            )
+        } else {
+            None
+        };
+        let directory = self
+            .workspace
+            .as_deref()
+            .unwrap_or_else(|| temporary_directory.as_ref().unwrap().path());
+        std::fs::create_dir_all(directory).map_err(|e| {
+            LlmError::Provider(format!("Cannot create Komodo conversation folder: {e}"))
+        })?;
+        let session_id = self.session_id();
+        if session_id
+            .as_deref()
+            .is_some_and(|id| !crate::portable::valid_conversation_id(id))
+        {
+            return Err(LlmError::Provider("Invalid saved Codex session ID".into()));
+        }
         let mut command = resolve_command(&self.executable)?;
         restrict_tools(&mut command);
-        let mcp_configuration =
-            disabled_mcp_configuration(&self.executable, directory.path()).await?;
+        let mcp_configuration = disabled_mcp_configuration(&self.executable, directory).await?;
         command.args(["-c", &mcp_configuration]);
+        command.arg("exec");
+        if session_id.is_some() {
+            command.arg("resume");
+        }
         command.args([
-            "exec",
             "--json",
             "--skip-git-repo-check",
-            "--sandbox",
-            "read-only",
-            "--color",
-            "never",
+            "-c",
+            "sandbox_mode=\"read-only\"",
             "-c",
             "approval_policy=\"never\"",
             "-c",
@@ -332,8 +366,9 @@ impl LlmProvider for CodexProvider {
             ]);
         }
         command
+            .args(session_id.iter())
             .arg("-")
-            .current_dir(directory.path())
+            .current_dir(directory)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -349,10 +384,11 @@ impl LlmProvider for CodexProvider {
         let stdout = child.stdout.take().unwrap();
         let stderr = child.stderr.take().unwrap();
         let prompt = reading_prompt(&req, &self.web_search)?;
+        let session = self.session.clone();
         let (sender, receiver) = tokio::sync::mpsc::channel(16);
         tokio::spawn(async move {
             // Keep the empty working directory alive through child shutdown.
-            let _directory = directory;
+            let _directory = temporary_directory;
             let mut lines = BufReader::new(stdout).lines();
             let mut stderr_task = tokio::spawn(async move {
                 let mut tail = Vec::new();
@@ -387,6 +423,16 @@ impl LlmProvider for CodexProvider {
                 {
                     if line.trim().is_empty() {
                         continue;
+                    }
+                    if let Ok(event) = serde_json::from_str::<Value>(&line) {
+                        if event["type"] == "thread.started" {
+                            if let Some(id) = event["thread_id"]
+                                .as_str()
+                                .filter(|id| crate::portable::valid_conversation_id(id))
+                            {
+                                *session.lock().unwrap() = Some(id.to_owned());
+                            }
+                        }
                     }
                     if let Some(text) = parse_event(&line)? {
                         if !text.is_empty() {
@@ -523,7 +569,7 @@ console.log(JSON.stringify({type:'item.completed',item:{type:'agent_message',tex
             let answer = provider.chat_once(request()).await.unwrap();
             let reply: Value = serde_json::from_str(&answer).unwrap();
             let args = reply["args"].as_array().unwrap();
-            assert!(args.contains(&Value::String("read-only".into())));
+            assert!(args.contains(&Value::String("sandbox_mode=\"read-only\"".into())));
             assert!(args.contains(&Value::String(format!("web_search=\"{mode}\""))));
             assert!(args.contains(&Value::String("features.shell_tool=false".into())));
             assert!(!args.contains(&Value::String("--ephemeral".into())));
@@ -545,6 +591,95 @@ console.log(JSON.stringify({type:'item.completed',item:{type:'agent_message',tex
                 assert!(!prompt.contains("Do not use tools."));
             }
         }
+    }
+
+    #[tokio::test]
+    async fn resumes_only_the_requested_session_in_a_stable_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        let script = dir.path().join("resume.mjs");
+        std::fs::write(&script, r#"
+import fs from 'node:fs';
+if (process.argv.includes('mcp')) { console.log('[]'); process.exit(0); }
+fs.readFileSync(0, 'utf8');
+console.log(JSON.stringify({type:'thread.started',thread_id:'11111111-1111-4111-8111-111111111111'}));
+console.log(JSON.stringify({type:'item.completed',item:{type:'agent_message',text:JSON.stringify({args:process.argv.slice(2),cwd:process.cwd()})}}));
+"#).unwrap();
+        let workspace = dir.path().join("PDF conversation");
+        let id = "11111111-1111-4111-8111-111111111111";
+        for saved in [None, Some(id.to_string())] {
+            let provider = CodexProvider::new(
+                script.to_string_lossy().into_owned(),
+                String::new(),
+                String::new(),
+                "disabled".into(),
+            )
+            .in_workspace(workspace.clone(), saved.clone());
+            let reply: Value =
+                serde_json::from_str(&provider.chat_once(request()).await.unwrap()).unwrap();
+            let args = reply["args"].as_array().unwrap();
+            assert_eq!(
+                args.contains(&Value::String("resume".into())),
+                saved.is_some()
+            );
+            assert_eq!(args.contains(&Value::String(id.into())), saved.is_some());
+            assert!(!args.contains(&Value::String("--last".into())));
+            assert!(args.contains(&Value::String("sandbox_mode=\"read-only\"".into())));
+            assert!(args.contains(&Value::String("features.shell_tool=false".into())));
+            assert_eq!(
+                Path::new(reply["cwd"].as_str().unwrap())
+                    .canonicalize()
+                    .unwrap(),
+                workspace.canonicalize().unwrap()
+            );
+            assert_eq!(provider.session_id().as_deref(), Some(id));
+        }
+    }
+
+    #[tokio::test]
+    #[ignore = "Requires an installed, logged-in Codex CLI and network access"]
+    async fn real_cli_resume_keeps_conversation_memory() {
+        let workspace = tempfile::Builder::new()
+            .prefix("komodo-codex-resume-")
+            .tempdir()
+            .unwrap();
+        let models = list_models("codex").await.unwrap();
+        let model = &models[0];
+        let create = |session| {
+            CodexProvider::new(
+                "codex".into(),
+                model.id.clone(),
+                model
+                    .supported_reasoning_efforts
+                    .first()
+                    .cloned()
+                    .unwrap_or_default(),
+                "disabled".into(),
+            )
+            .in_workspace(workspace.path().into(), session)
+        };
+        let first = create(None);
+        let req = |content: &str| ChatRequest {
+            messages: vec![crate::llm::ChatMessage {
+                role: crate::llm::Role::User,
+                content: content.into(),
+            }],
+            system_prompt: "Follow the latest question briefly.".into(),
+            ..request()
+        };
+        first.chat_once(req("Remember this exact secret test token for the next question: KOMODO_RESUME_73C9. Reply OK only.")).await.unwrap();
+        let id = first.session_id().expect("Missing thread.started ID");
+        let resumed = create(Some(id.clone()));
+        let reply = resumed
+            .chat_once(req(
+                "What exact test token did I give you earlier? Reply with only that token.",
+            ))
+            .await
+            .unwrap();
+        assert!(
+            reply.contains("KOMODO_RESUME_73C9"),
+            "Session memory lost: {reply}"
+        );
+        assert_eq!(resumed.session_id(), Some(id));
     }
 
     #[tokio::test]

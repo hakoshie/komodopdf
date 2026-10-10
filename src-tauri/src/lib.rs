@@ -5,7 +5,7 @@ mod portable;
 mod rag;
 mod secrets;
 
-use db::{Db, Settings};
+use db::{Db, SavedMessage, Settings};
 use futures_util::StreamExt;
 use llm::{ChatEvent, EmbedInput, Quad};
 use rag::{build_grounding, index_document, IndexProgress, PageExtraction, ReaderContext};
@@ -268,15 +268,45 @@ async fn ask(
     state: tauri::State<'_, Arc<Db>>,
     app: tauri::AppHandle,
     file_hash: String,
+    conversation_id: String,
     question: String,
     current_page: u32,
     selection_text: Option<String>,
     selection_quads: Vec<Quad>,
     channel: Channel<ChatEvent>,
     message_count: usize,
-    history: Vec<llm::ChatMessage>,
     persona: String,
 ) -> Result<(), String> {
+    let saved = state
+        .load_conversation(&file_hash, &conversation_id)
+        .map_err(|e| e.to_string())?;
+    let history: Vec<llm::ChatMessage> = saved
+        .messages
+        .iter()
+        .rev()
+        .take(6)
+        .rev()
+        .map(|m| llm::ChatMessage {
+            role: m.role,
+            content: m.content.clone(),
+        })
+        .collect();
+    state
+        .append_chat_message(
+            &file_hash,
+            &conversation_id,
+            SavedMessage {
+                role: llm::Role::User,
+                content: question.clone(),
+                sources: vec![],
+                citations: vec![],
+            },
+        )
+        .map_err(|e| e.to_string())?;
+    let mut full_response = String::new();
+    let mut saved_sources = Vec::new();
+    let mut active_provider: Option<Box<dyn llm::LlmProvider>> = None;
+    let result = async {
     let settings = state.get_settings().map_err(|e| e.to_string())?;
 
     let ctx = ReaderContext {
@@ -317,6 +347,7 @@ async fn ask(
     .await
     .map_err(|e| e.to_string())?;
 
+    saved_sources = grounding.sources.clone();
     channel
         .send(ChatEvent::Sources(grounding.sources))
         .map_err(|e| e.to_string())?;
@@ -324,7 +355,11 @@ async fn ask(
     let chat_key = secrets::get_api_key(KeySlot::Chat)
         .map_err(|e| e.to_string())?
         .unwrap_or_default();
-    let provider = llm::chat::provider(&settings, chat_key).map_err(|e| e.to_string())?;
+    let workspace = if settings.chat_backend == "codex" {
+        Some(portable::conversation_dir(&app, &file_hash, &conversation_id).map_err(|e| e.to_string())?)
+    } else { None };
+    active_provider = Some(llm::chat::provider_for_chat(&settings, chat_key, workspace, saved.codex_session_id.clone()).map_err(|e| e.to_string())?);
+    let provider = active_provider.as_ref().unwrap();
 
     let model = settings.chat_model.clone();
     let is_first = message_count == 0;
@@ -387,10 +422,10 @@ async fn ask(
         channel
             .send(ChatEvent::Token(note.to_string()))
             .map_err(|e| e.to_string())?;
+        full_response.push_str(note);
     }
 
     let mut stream = provider.chat_stream(req).await.map_err(|e| e.to_string())?;
-    let mut full_response = String::new();
     while let Some(token_result) = stream.next().await {
         match token_result {
             Ok(token) => {
@@ -400,10 +435,7 @@ async fn ask(
                     .map_err(|e| e.to_string())?;
             }
             Err(e) => {
-                channel
-                    .send(ChatEvent::Error(e.to_string()))
-                    .map_err(|e| e.to_string())?;
-                break;
+                return Err(e.to_string());
             }
         }
     }
@@ -411,8 +443,71 @@ async fn ask(
     if let Some(logger) = &llm_logger {
         logger.log_response(&file_hash, &full_response);
     }
+    Ok::<(), String>(())
+    }.await;
+    if let Err(error) = &result {
+        full_response.push_str(&format!("\n[Error: {error}]"));
+    }
+    if let Some(session_id) = active_provider
+        .as_ref()
+        .and_then(|provider| provider.session_id())
+    {
+        state
+            .save_codex_session(&file_hash, &conversation_id, &session_id)
+            .map_err(|e| format!("Could not save Codex session: {e}"))?;
+    }
+    let citations = saved_sources
+        .iter()
+        .filter(|source| full_response.contains(&format!("[{}]", source.idx)))
+        .map(|source| source.idx)
+        .collect();
+    state
+        .append_chat_message(
+            &file_hash,
+            &conversation_id,
+            SavedMessage {
+                role: llm::Role::Assistant,
+                content: full_response,
+                sources: saved_sources,
+                citations,
+            },
+        )
+        .map_err(|e| format!("Could not save chat history: {e}"))?;
+    result?;
     channel.send(ChatEvent::Done).map_err(|e| e.to_string())?;
     Ok(())
+}
+
+#[tauri::command]
+fn list_conversations(
+    state: tauri::State<'_, Arc<Db>>,
+    file_hash: String,
+) -> Result<Vec<db::ConversationSummary>, String> {
+    state
+        .list_conversations(&file_hash)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn load_conversation(
+    state: tauri::State<'_, Arc<Db>>,
+    file_hash: String,
+    conversation_id: String,
+) -> Result<db::SavedConversation, String> {
+    state
+        .load_conversation(&file_hash, &conversation_id)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn create_conversation(
+    state: tauri::State<'_, Arc<Db>>,
+    file_hash: String,
+    conversation_id: String,
+) -> Result<(), String> {
+    state
+        .create_conversation(&file_hash, &conversation_id)
+        .map_err(|e| e.to_string())
 }
 
 #[derive(Clone, Debug, serde::Serialize)]
@@ -605,6 +700,9 @@ pub fn run() {
             write_audit_file,
             index_document_cmd,
             ask,
+            list_conversations,
+            load_conversation,
+            create_conversation,
             test_connection,
             list_embedding_models,
             model_status_cmd,

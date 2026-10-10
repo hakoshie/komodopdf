@@ -1,6 +1,28 @@
 pub mod codex;
 pub mod openai_compat;
 
+pub fn provider_for_chat(
+    settings: &crate::db::Settings,
+    api_key: String,
+    workspace: Option<std::path::PathBuf>,
+    session_id: Option<String>,
+) -> Result<Box<dyn crate::llm::LlmProvider>, crate::llm::LlmError> {
+    if settings.chat_backend == "codex" {
+        let provider = codex::CodexProvider::new(
+            settings.codex_path.clone(),
+            settings.codex_model.clone(),
+            settings.codex_reasoning_effort.clone(),
+            settings.codex_web_search.clone(),
+        );
+        return Ok(Box::new(if let Some(directory) = workspace {
+            provider.in_workspace(directory, session_id)
+        } else {
+            provider
+        }));
+    }
+    provider(settings, api_key)
+}
+
 pub fn provider(
     settings: &crate::db::Settings,
     api_key: String,

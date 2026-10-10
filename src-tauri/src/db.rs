@@ -5,6 +5,40 @@ use std::sync::Mutex;
 
 pub struct Db {
     conn: Mutex<Connection>,
+    history: Mutex<Connection>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SavedMessage {
+    pub role: crate::llm::Role,
+    pub content: String,
+    #[serde(default)]
+    pub sources: Vec<crate::llm::Source>,
+    #[serde(default)]
+    pub citations: Vec<usize>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConversationSummary {
+    pub id: String,
+    pub title: String,
+    pub updated_at: i64,
+    pub message_count: usize,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct SavedConversation {
+    pub id: String,
+    pub messages: Vec<SavedMessage>,
+    pub codex_session_id: Option<String>,
+}
+
+fn chat_timestamp() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as i64
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -83,8 +117,12 @@ impl Db {
             std::fs::create_dir_all(parent)?;
         }
         let conn = Connection::open(&path)?;
+        let history_dir = crate::portable::history_dir(app_handle)?;
+        std::fs::create_dir_all(&history_dir)?;
+        let history = Connection::open(history_dir.join("conversations.sqlite"))?;
         let db = Db {
             conn: Mutex::new(conn),
+            history: Mutex::new(history),
         };
         db.migrate()?;
         Ok(db)
@@ -123,6 +161,129 @@ impl Db {
             )",
             [],
         )?;
+        drop(conn);
+        let conn = self.history.lock().unwrap();
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS conversations (
+                id TEXT PRIMARY KEY,
+                file_hash TEXT NOT NULL,
+                title TEXT NOT NULL,
+                updated_at INTEGER NOT NULL,
+                message_count INTEGER NOT NULL DEFAULT 0,
+                messages_json TEXT NOT NULL DEFAULT '[]',
+                codex_session_id TEXT
+            )",
+            [],
+        )?;
+        let has_session_id = conn
+            .prepare("PRAGMA table_info(conversations)")?
+            .query_map([], |row| row.get::<_, String>(1))?
+            .collect::<Result<Vec<_>, _>>()?
+            .iter()
+            .any(|name| name == "codex_session_id");
+        if !has_session_id {
+            conn.execute(
+                "ALTER TABLE conversations ADD COLUMN codex_session_id TEXT",
+                [],
+            )?;
+        }
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_conversations_pdf ON conversations(file_hash, updated_at DESC)", [])?;
+        Ok(())
+    }
+
+    pub fn create_conversation(&self, file_hash: &str, id: &str) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            file_hash.len() == 64
+                && file_hash.bytes().all(|b| b.is_ascii_hexdigit())
+                && crate::portable::valid_conversation_id(id),
+            "Invalid PDF or conversation ID"
+        );
+        self.history.lock().unwrap().execute(
+            "INSERT INTO conversations(id, file_hash, title, updated_at) VALUES (?1, ?2, 'New chat', ?3)",
+            params![id, file_hash, chat_timestamp()],
+        )?;
+        Ok(())
+    }
+
+    pub fn list_conversations(&self, file_hash: &str) -> anyhow::Result<Vec<ConversationSummary>> {
+        let conn = self.history.lock().unwrap();
+        let mut stmt = conn.prepare("SELECT id, title, updated_at, message_count FROM conversations WHERE file_hash = ?1 ORDER BY updated_at DESC, rowid DESC")?;
+        let rows = stmt.query_map(params![file_hash], |row| {
+            Ok(ConversationSummary {
+                id: row.get(0)?,
+                title: row.get(1)?,
+                updated_at: row.get(2)?,
+                message_count: row.get(3)?,
+            })
+        })?;
+        Ok(rows.collect::<Result<Vec<_>, _>>()?)
+    }
+
+    pub fn load_conversation(
+        &self,
+        file_hash: &str,
+        id: &str,
+    ) -> anyhow::Result<SavedConversation> {
+        let conn = self.history.lock().unwrap();
+        let (json, codex_session_id): (String, Option<String>) = conn.query_row(
+            "SELECT messages_json, codex_session_id FROM conversations WHERE file_hash = ?1 AND id = ?2",
+            params![file_hash, id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+        Ok(SavedConversation {
+            id: id.to_owned(),
+            messages: serde_json::from_str(&json)?,
+            codex_session_id,
+        })
+    }
+
+    pub fn append_chat_message(
+        &self,
+        file_hash: &str,
+        id: &str,
+        message: SavedMessage,
+    ) -> anyhow::Result<()> {
+        let conn = self.history.lock().unwrap();
+        let json: String = conn.query_row(
+            "SELECT messages_json FROM conversations WHERE file_hash = ?1 AND id = ?2",
+            params![file_hash, id],
+            |row| row.get(0),
+        )?;
+        let mut messages: Vec<SavedMessage> = serde_json::from_str(&json)?;
+        messages.push(message);
+        let title = messages
+            .iter()
+            .find(|m| matches!(m.role, crate::llm::Role::User))
+            .map(|m| {
+                m.content
+                    .split_whitespace()
+                    .collect::<Vec<_>>()
+                    .join(" ")
+                    .chars()
+                    .take(72)
+                    .collect::<String>()
+            })
+            .unwrap_or_else(|| "New chat".into());
+        conn.execute("UPDATE conversations SET messages_json = ?1, title = ?2, updated_at = MAX(?3, (SELECT COALESCE(MAX(updated_at), 0) + 1 FROM conversations)), message_count = ?4 WHERE file_hash = ?5 AND id = ?6",
+            params![serde_json::to_string(&messages)?, title, chat_timestamp(), messages.len(), file_hash, id])?;
+        Ok(())
+    }
+
+    pub fn save_codex_session(
+        &self,
+        file_hash: &str,
+        id: &str,
+        session_id: &str,
+    ) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            crate::portable::valid_conversation_id(session_id),
+            "Invalid Codex session ID"
+        );
+        let changed = self.history.lock().unwrap().execute(
+            "UPDATE conversations SET codex_session_id = ?1 WHERE file_hash = ?2 AND id = ?3",
+            params![session_id, file_hash, id],
+        )?;
+        anyhow::ensure!(changed == 1, "Conversation not found for this PDF");
         Ok(())
     }
 
@@ -324,6 +485,7 @@ mod tests {
     fn db() -> Db {
         let db = Db {
             conn: Mutex::new(Connection::open_in_memory().unwrap()),
+            history: Mutex::new(Connection::open_in_memory().unwrap()),
         };
         db.migrate().unwrap();
         db
@@ -362,6 +524,85 @@ mod tests {
         assert_eq!(loaded.codex_reasoning_effort, "high");
         assert_eq!(loaded.codex_web_search, "cached");
         assert_eq!(loaded.response_language, "ja");
+    }
+
+    #[test]
+    fn conversations_survive_reopening_and_stay_scoped_to_the_pdf() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("history.sqlite");
+        let open = || {
+            let db = Db {
+                conn: Mutex::new(Connection::open_in_memory().unwrap()),
+                history: Mutex::new(Connection::open(&path).unwrap()),
+            };
+            db.migrate().unwrap();
+            db
+        };
+        let pdf = "a".repeat(64);
+        let other_pdf = "b".repeat(64);
+        let first = "11111111-1111-4111-8111-111111111111";
+        let second = "22222222-2222-4222-8222-222222222222";
+        let other = "33333333-3333-4333-8333-333333333333";
+        let user = |content: &str| SavedMessage {
+            role: crate::llm::Role::User,
+            content: content.into(),
+            sources: vec![],
+            citations: vec![],
+        };
+        {
+            let db = open();
+            db.create_conversation(&pdf, first).unwrap();
+            db.create_conversation(&pdf, second).unwrap();
+            db.create_conversation(&other_pdf, other).unwrap();
+            db.append_chat_message(&pdf, first, user("日本語の質問\n数式について"))
+                .unwrap();
+            db.append_chat_message(
+                &pdf,
+                first,
+                SavedMessage {
+                    role: crate::llm::Role::Assistant,
+                    content: "Formula \\(x^2\\) [1]. [Web](https://example.com)".into(),
+                    sources: vec![crate::llm::Source {
+                        idx: 1,
+                        chunk_id: "chunk".into(),
+                        page: 2,
+                        snippet: "Reference".into(),
+                        quads: vec![crate::llm::Quad {
+                            x0: 10.,
+                            y0: 20.,
+                            x1: 30.,
+                            y1: 40.,
+                        }],
+                    }],
+                    citations: vec![1],
+                },
+            )
+            .unwrap();
+            db.save_codex_session(&pdf, first, other).unwrap();
+            db.append_chat_message(&pdf, second, user("Separate conversation"))
+                .unwrap();
+            db.append_chat_message(&pdf, first, user("続き")).unwrap();
+            assert!(db.load_conversation(&other_pdf, first).is_err());
+            assert!(db
+                .append_chat_message(&other_pdf, first, user("Wrong PDF"))
+                .is_err());
+            assert!(db.save_codex_session(&other_pdf, first, other).is_err());
+            assert!(db.save_codex_session(&pdf, first, "../../escape").is_err());
+            db.delete_document(&pdf).unwrap(); // Reindexing must not erase conversations.
+        }
+        let db = open();
+        let list = db.list_conversations(&pdf).unwrap();
+        assert_eq!(list.len(), 2);
+        assert_eq!(list[0].id, first);
+        assert_eq!(list[0].title, "日本語の質問 数式について");
+        assert_eq!(list[0].message_count, 3);
+        assert_eq!(db.list_conversations(&other_pdf).unwrap().len(), 1);
+        let saved = db.load_conversation(&pdf, first).unwrap();
+        assert_eq!(saved.codex_session_id.as_deref(), Some(other));
+        assert_eq!(saved.messages[1].sources[0].page, 2);
+        assert_eq!(saved.messages[1].sources[0].quads[0].y0, 20.);
+        assert_eq!(saved.messages[1].citations, [1]);
+        assert!(saved.messages[1].content.contains("https://example.com"));
     }
 
     #[test]

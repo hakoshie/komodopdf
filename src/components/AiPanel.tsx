@@ -5,6 +5,7 @@ import { useReaderStore } from "../state/useReaderStore";
 import MarkdownRenderer from "./MarkdownRenderer";
 import { responseLanguage, selectionQuestion } from "../utils/responseLanguage";
 import { useCtrlWheelZoom } from "../hooks/useCtrlWheelZoom";
+import { useChatHistory } from "../hooks/useChatHistory";
 
 interface ChatEvent {
   kind: "sources" | "token" | "done" | "error";
@@ -17,6 +18,7 @@ export default function AiPanel() {
   const panelRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const chatHistory = useChatHistory();
   useCtrlWheelZoom(panelRef, (factor) => setTextZoom((zoom) => Math.max(0.75, Math.min(2.5, zoom * factor))));
   useEffect(() => { autoResize(); }, [textZoom]);
 
@@ -64,7 +66,7 @@ export default function AiPanel() {
   const doAsk = useCallback(async (questionOverride?: string) => {
     const store = useReaderStore.getState();
     const q = questionOverride ?? input.trim();
-    if (!q || store.streaming || !store.fileHash) return;
+    if (!q || store.streaming || !store.fileHash || !store.chatHistoryReady) return;
 
     if (!store.configured) {
       store.setPendingQuestion(q);
@@ -88,24 +90,18 @@ export default function AiPanel() {
     setTimeout(autoResize, 0);
     store.setStreaming(true);
 
-    // Include recent conversation history for multi-turn context (last 6 messages, excluding the current question)
-    const history = store.messages.slice(-6).map((m) => ({
-      role: m.role,
-      content: m.content,
-    }));
-
     const channel = new Channel<ChatEvent>();
     let sources: any[] = [];
+    let conversationId = store.conversationId;
 
     channel.onmessage = (event) => {
       const store2 = useReaderStore.getState();
-      if (store2.pdfDoc !== store.pdfDoc) return;
+      if (store2.pdfDoc !== store.pdfDoc || store2.conversationId !== conversationId) return;
       if (event.kind === "sources") {
         sources = event.data || [];
       } else if (event.kind === "token") {
         store2.appendToken(event.data as string);
       } else if (event.kind === "done") {
-        store2.setStreaming(false);
         const msgs = [...store2.messages];
         const lastMsg = msgs[msgs.length - 1];
         if (lastMsg && lastMsg.role === "assistant") {
@@ -116,30 +112,45 @@ export default function AiPanel() {
           useReaderStore.setState({ messages: msgs });
         }
       } else if (event.kind === "error") {
-        store2.setStreaming(false);
         store2.appendToken(`\n[Error: ${event.data}]`);
       }
     };
 
     try {
+      if (!conversationId) {
+        conversationId = crypto.randomUUID();
+        await invoke("create_conversation", { fileHash: store.fileHash, conversationId });
+        if (useReaderStore.getState().pdfDoc !== store.pdfDoc) return;
+        useReaderStore.setState({ conversationId });
+      }
       await invoke("ask", {
         fileHash: store.fileHash,
+        conversationId,
         question: q,
         currentPage: store.currentPage,
         selectionText: store.selection || null,
         selectionQuads: store.selectionQuads,
         channel,
         messageCount,
-        history,
         persona: store.persona,
       });
     } catch (e: any) {
       const store2 = useReaderStore.getState();
-      if (store2.pdfDoc !== store.pdfDoc) return;
-      store2.setStreaming(false);
+      if (store2.pdfDoc !== store.pdfDoc || store2.conversationId !== conversationId) return;
       store2.appendToken(`\n[Error: ${e.toString()}]`);
+    } finally {
+      if (useReaderStore.getState().pdfDoc === store.pdfDoc && useReaderStore.getState().conversationId === conversationId) {
+        const msgs = [...useReaderStore.getState().messages];
+        const last = msgs[msgs.length - 1];
+        if (last?.role === "assistant") {
+          msgs[msgs.length - 1] = { ...last, citations: parseCitations(last.content), sources };
+          useReaderStore.setState({ messages: msgs });
+        }
+        useReaderStore.getState().setStreaming(false);
+        await chatHistory.refresh();
+      }
     }
-  }, [input]);
+  }, [input, chatHistory.refresh]);
 
   const doAskRef = useRef(doAsk);
   doAskRef.current = doAsk;
@@ -202,6 +213,8 @@ export default function AiPanel() {
     fileName,
     fileHash,
     messages,
+    conversationId,
+    chatHistoryReady,
     streaming,
     configured,
     responseLanguage: language,
@@ -266,6 +279,29 @@ export default function AiPanel() {
           </button>
         </div>
       </div>
+
+      {fileHash && <div style={{ padding: "8px 16px", borderBottom: "1px solid var(--border)", fontSize: 12 }}>
+        <label htmlFor="chat-history" style={{ color: "var(--text-muted)" }}>Chat history / 履歴</label>
+        <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
+          <select id="chat-history" value={conversationId ?? ""} disabled={streaming || chatHistory.loading || !chatHistoryReady}
+            onChange={(event) => {
+              if (!event.target.value) chatHistory.newChat();
+              else void chatHistory.select(event.target.value);
+              setInput("");
+            }} style={{ minWidth: 0, flex: 1, padding: "6px", borderRadius: 6, background: "var(--surface)", color: "var(--text)", border: "1px solid var(--border)" }}>
+            <option value="">{chatHistory.loading ? "Loading… / 読み込み中" : "New chat / 新しい会話"}</option>
+            {conversationId && !chatHistory.conversations.some((chat) => chat.id === conversationId) && <option value={conversationId}>Current chat / 現在の会話</option>}
+            {chatHistory.conversations.map((chat) => <option key={chat.id} value={chat.id}>
+              {chat.title} · {new Date(chat.updatedAt).toLocaleString()} ({chat.messageCount})
+            </option>)}
+          </select>
+          <button title="New chat / 新しい会話" aria-label="New chat / 新しい会話" disabled={streaming || !chatHistoryReady || chatHistory.loading}
+            onClick={() => { chatHistory.newChat(); setInput(""); }} style={{ padding: "4px 8px", borderRadius: 6, background: "var(--surface)", border: "1px solid var(--border)" }}>＋</button>
+        </div>
+        {chatHistory.error && <div role="alert" style={{ color: "#ef4444", marginTop: 6 }}>{chatHistory.error}
+          <button onClick={chatHistory.retry} disabled={streaming} style={{ marginLeft: 8 }}>Retry / 再試行</button>
+        </div>}
+      </div>}
 
       <div ref={scrollRef} aria-label="Ask Komodo conversation" style={{ flex: 1, padding: 16, overflow: "auto", fontSize: 13 * textZoom }}>
         {messages.length === 0 && !fileName && (
@@ -423,7 +459,7 @@ export default function AiPanel() {
             placeholder={
               configured ? "Ask anything..." : "Choose a provider in Settings..."
             }
-            disabled={!configured || streaming || !fileName}
+            disabled={!configured || streaming || !fileName || !chatHistoryReady}
             rows={1}
             style={{
               flex: 1,
@@ -445,7 +481,7 @@ export default function AiPanel() {
           />
           <button
             onClick={() => doAsk()}
-            disabled={!configured || streaming || !input.trim() || !fileName}
+            disabled={!configured || streaming || !input.trim() || !fileName || !chatHistoryReady}
             style={{
               padding: "8px 16px",
               borderRadius: 6,

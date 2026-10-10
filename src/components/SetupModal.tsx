@@ -362,7 +362,7 @@ export default function SetupModal() {
             <p style={hintStyle}>検索を頼んだときや、PDFに情報が足りないときにウェブを参照できます。出典はリンクで表示します。検索語は検索サービスに送られます。</p>
             <p style={hintStyle}>Install Codex CLI and run <code>codex login</code> once. Komodo uses that login, so no chat API key is needed here. Answers arrive when the CLI finishes.</p>
             <p style={hintStyle}>Your question and document excerpts are sent through your configured Codex provider. Embeddings are configured separately below.</p>
-            <p style={hintStyle}>Codex sessions are saved automatically. 質問・参照したPDFの抜粋・回答はCodexのセッション履歴に保存されます。</p>
+            <p style={hintStyle}>会話はPDFごとに保存され、Ask Komodoの履歴から再開できます。Codexは同じ会話のセッションを引き継ぎます。</p>
           </> : <>
           <label style={labelStyle}>Base URL</label>
           <input
