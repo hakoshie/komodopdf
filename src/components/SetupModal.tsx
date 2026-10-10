@@ -296,7 +296,9 @@ export default function SetupModal() {
   const totalMb = selectedStatus ? Math.round(selectedStatus.totalBytes / 1024 / 1024) : 0;
 
   return (
-    <div style={modalOverlayStyle}>
+    <div style={modalOverlayStyle} onClick={(event) => {
+      if (event.target === event.currentTarget) setActiveModal("none");
+    }}>
       <div style={modalContentStyle}>
         <h3 style={{ margin: "0 0 16px", fontSize: 16 }}>Settings</h3>
         {saveError && <p role="alert" style={{ color: "#ef4444", fontSize: 13 }}>Could not save settings: {saveError}</p>}
