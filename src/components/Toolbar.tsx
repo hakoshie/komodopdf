@@ -175,6 +175,7 @@ export default function Toolbar() {
           </div>
 
           <div style={{ display: "flex", alignItems: "center", gap: 4, marginLeft: "auto" }}>
+            {askToggle}
             <button
               onClick={() => setScale(displayScale * 1.2)}
               title="Zoom in"
@@ -187,7 +188,6 @@ export default function Toolbar() {
             >
               +
             </button>
-            {askToggle}
             <span style={{ fontVariantNumeric: "tabular-nums", minWidth: 48, textAlign: "center" }}>
               {fitMode ? "Fit" : `${Math.round(displayScale * 100)}%`}
             </span>
