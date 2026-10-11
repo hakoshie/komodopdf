@@ -22,8 +22,18 @@ function savedChat(args: any) {
 }
 const openedUrls: string[] = [];
 (window as any).__openedUrls = openedUrls;
+const authStatus = { accounts: [] as any[], activeAccount: null as string | null, connected: false, pending: false, error: null, showWelcome: false };
+(window as any).__completeChatgptSignIn = () => {
+  Object.assign(authStatus, { accounts: [{ id: "issued-account", label: "user@example.test", connected: true }], activeAccount: "issued-account", connected: true, pending: false, showWelcome: true });
+};
 mockIPC(async (cmd, args: any) => {
   switch (cmd) {
+    case "chatgpt_status": return structuredClone(authStatus);
+    case "start_chatgpt_sign_in": authStatus.pending = true; return;
+    case "cancel_chatgpt_sign_in": authStatus.pending = false; return;
+    case "chatgpt_welcome_seen": authStatus.showWelcome = false; return;
+    case "sign_out_chatgpt": authStatus.connected = false; authStatus.accounts[0].connected = false; return true;
+    case "list_chatgpt_models": return [{ id: "plan-model", displayName: "Plan model", supportedReasoningEfforts: ["low", "high"] }];
     case "get_settings": return settings;
     case "set_settings": Object.assign(settings, args.settings); return;
     case "has_api_key": return false;

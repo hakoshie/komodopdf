@@ -62,7 +62,7 @@ interface ReaderState {
   configured: boolean;
   apiKeyPresent: boolean;
   baseUrl: string;
-  chatBackend: "openai" | "codex";
+  chatBackend: "openai" | "codex" | "chatgpt";
   embedBackend: "local" | "remote";
   embedBaseUrl: string;
   embedModelRemote: string;

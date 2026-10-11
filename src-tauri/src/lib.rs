@@ -1,3 +1,4 @@
+mod chatgpt_auth;
 mod db;
 mod llm;
 mod models;
@@ -166,7 +167,48 @@ async fn list_codex_models(
 }
 
 #[tauri::command]
+async fn chatgpt_status() -> Result<chatgpt_auth::Status, String> {
+    chatgpt_auth::status().await
+}
+#[tauri::command]
+async fn start_chatgpt_sign_in(
+    app: tauri::AppHandle,
+    account_id: Option<String>,
+) -> Result<(), String> {
+    chatgpt_auth::start(app, account_id).await
+}
+#[tauri::command]
+async fn cancel_chatgpt_sign_in() -> Result<(), String> {
+    chatgpt_auth::cancel().await
+}
+#[tauri::command]
+async fn select_chatgpt_account(account_id: String) -> Result<(), String> {
+    chatgpt_auth::select(account_id).await
+}
+#[tauri::command]
+async fn sign_out_chatgpt() -> Result<bool, String> {
+    chatgpt_auth::logout().await
+}
+#[tauri::command]
+async fn chatgpt_welcome_seen() -> Result<(), String> {
+    chatgpt_auth::welcome_seen().await
+}
+#[tauri::command]
+async fn list_chatgpt_models() -> Result<Vec<llm::chat::chatgpt::ModelOption>, String> {
+    llm::chat::chatgpt::models().await
+}
+
+#[tauri::command]
 fn set_settings(state: tauri::State<'_, Arc<Db>>, settings: Settings) -> Result<(), String> {
+    if !matches!(
+        settings.chat_backend.as_str(),
+        "openai" | "codex" | "chatgpt"
+    ) {
+        return Err("Invalid chat provider".into());
+    }
+    if !crate::llm::chat::codex::valid_reasoning_effort(&settings.chatgpt_reasoning_effort) {
+        return Err("Invalid ChatGPT thinking level".into());
+    }
     if !crate::llm::chat::codex::valid_reasoning_effort(&settings.codex_reasoning_effort) {
         return Err("Invalid Codex thinking level".into());
     }
@@ -409,7 +451,8 @@ async fn ask(
     // Stream immediately in both cases — no double generation, no judge pause.
     if !use_rag {
         let search_enabled =
-            settings.chat_backend == "codex" && settings.codex_web_search != "disabled";
+            (settings.chat_backend == "codex" && settings.codex_web_search != "disabled")
+                || (settings.chat_backend == "chatgpt" && settings.chatgpt_web_search);
         let note = if search_enabled && settings.response_language == "ja" {
             "> _文書内に十分な根拠が見つからなかったため、必要に応じて一般知識やウェブ検索で補います。_\n\n"
         } else if search_enabled {
@@ -549,9 +592,21 @@ async fn test_connection(
         };
         match provider.chat_stream(req).await {
             Ok(mut stream) => {
-                if let Some(Ok(_)) = stream.next().await {
-                    chat_ok = true;
-                } else {
+                while let Some(item) = stream.next().await {
+                    match item {
+                        Ok(text) => {
+                            if !text.is_empty() {
+                                chat_ok = true;
+                            }
+                        }
+                        Err(e) => {
+                            chat_ok = false;
+                            chat_err = Some(e.to_string());
+                            break;
+                        }
+                    }
+                }
+                if !chat_ok && chat_err.is_none() {
                     chat_err = Some("No response".to_string());
                 }
             }
@@ -674,6 +729,7 @@ pub fn run() {
             let settings = db.get_settings().unwrap_or_default();
 
             let app_data_dir = crate::portable::data_dir(app);
+            chatgpt_auth::init(app_data_dir.join("chatgpt-accounts.dat"));
             init_logger(&settings.log_level, Some(app_data_dir.clone()));
 
             if let Ok(logger) = LlmLogger::new(app_data_dir.join("llm.log")) {
@@ -695,6 +751,13 @@ pub fn run() {
             delete_document,
             get_settings,
             list_codex_models,
+            chatgpt_status,
+            start_chatgpt_sign_in,
+            cancel_chatgpt_sign_in,
+            select_chatgpt_account,
+            sign_out_chatgpt,
+            chatgpt_welcome_seen,
+            list_chatgpt_models,
             set_settings,
             is_audit_enabled,
             write_audit_file,

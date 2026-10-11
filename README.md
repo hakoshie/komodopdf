@@ -225,3 +225,12 @@ an Acrobat clone).
 ## License
 
 Komodo PDF is licensed under the **GNU General Public License v3.0** — see [LICENSE](./LICENSE).
+
+
+### Sign in with ChatGPT
+
+On the `dev` branch, open **Settings → Provider → ChatGPT (Sign in with ChatGPT)** and choose **Continue with ChatGPT**. Complete the browser sign-in and allow plan usage, select an available model, then save. This direct OAuth provider requires neither an API key nor the Codex CLI. Available models, reasoning levels, web search and usage depend on your account and the current preview. **Manage usage** opens ChatGPT usage settings.
+
+Komodo keeps conversation history locally; signing in does not sync conversations to ChatGPT's chat history. Questions and selected PDF excerpts are sent to OpenAI. Embedding settings remain separate. Windows credentials are encrypted with the current user's DPAPI; Unix credentials use an owner-only file in the app data directory. Refreshes are serialized across app processes. Sign out clears local credentials and attempts remote revocation; if it cannot confirm revocation, disconnect the application in ChatGPT settings. Saved account registrations remain available for signing in again.
+
+Protocol reference: [OpenAI Sign in with ChatGPT for open-source clients](https://developers.openai.com/siwc/token-sharing-open-source).

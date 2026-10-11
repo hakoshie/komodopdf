@@ -1,3 +1,4 @@
+pub mod chatgpt;
 pub mod codex;
 pub mod openai_compat;
 
@@ -28,6 +29,11 @@ pub fn provider(
     api_key: String,
 ) -> Result<Box<dyn crate::llm::LlmProvider>, crate::llm::LlmError> {
     match settings.chat_backend.as_str() {
+        "chatgpt" => Ok(Box::new(chatgpt::ChatGptProvider::new(
+            settings.chatgpt_model.clone(),
+            settings.chatgpt_reasoning_effort.clone(),
+            settings.chatgpt_web_search,
+        ))),
         "codex" => Ok(Box::new(codex::CodexProvider::new(
             settings.codex_path.clone(),
             settings.codex_model.clone(),

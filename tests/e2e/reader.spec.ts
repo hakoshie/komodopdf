@@ -444,3 +444,24 @@ test("a delayed history load cannot replace the conversation of a newly opened P
   await expect(page.getByText("Old thread A", { exact: true })).toHaveCount(0);
   await expect(page.locator(".katex-display")).toHaveCount(0);
 });
+
+
+test("ChatGPT sign-in can be cancelled, completed, saved and signed out", async ({ page }) => {
+  await page.getByTitle("Settings", { exact: true }).click();
+  await page.getByLabel("Provider", { exact: true }).selectOption("chatgpt");
+  await page.getByRole("button", { name: "Continue with ChatGPT", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Cancel sign-in" })).toBeVisible();
+  await page.getByRole("button", { name: "Cancel sign-in" }).click();
+  await page.getByRole("button", { name: "Continue with ChatGPT", exact: true }).click();
+  await page.evaluate(() => (window as any).__completeChatgptSignIn());
+  await page.getByRole("button", { name: "Got it", exact: true }).click();
+  await expect(page.getByLabel("ChatGPT model", { exact: true })).toHaveValue("plan-model");
+  await page.getByLabel("Thinking level / 思考の深さ", { exact: true }).selectOption("high");
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await page.getByTitle("Settings", { exact: true }).click();
+  await expect(page.getByLabel("Provider", { exact: true })).toHaveValue("chatgpt");
+  await expect(page.getByLabel("ChatGPT model", { exact: true })).toHaveValue("plan-model");
+  await expect(page.getByLabel("Thinking level / 思考の深さ", { exact: true })).toHaveValue("high");
+  await page.getByRole("button", { name: "Sign out", exact: true }).click();
+  await expect(page.getByLabel("ChatGPT model", { exact: true })).toBeDisabled();
+});

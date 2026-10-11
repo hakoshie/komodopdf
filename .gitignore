@@ -13,6 +13,8 @@ node_modules
 dist
 dist-ssr
 *.local
+chatgpt-accounts.dat
+chatgpt-accounts.lock
 .tools/
 .npm-cache/
 src-tauri/target/

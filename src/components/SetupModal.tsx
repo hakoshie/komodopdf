@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { Channel } from "@tauri-apps/api/core";
 import { useReaderStore } from "../state/useReaderStore";
 import ModelDownloadModal from "./ModelDownloadModal";
+import ChatGptSettings from "./ChatGptSettings";
 import { responseLanguage, type ResponseLanguage } from "../utils/responseLanguage";
 
 interface ModelInfo {
@@ -43,7 +44,11 @@ export default function SetupModal() {
   } = useReaderStore();
 
   const [localBaseUrl, setLocalBaseUrl] = useState(baseUrl);
-  const [chatBackend, setChatBackend] = useState<"openai" | "codex">("openai");
+  const [chatBackend, setChatBackend] = useState<"openai" | "codex" | "chatgpt">("openai");
+  const [chatgptModel, setChatgptModel] = useState("");
+  const [chatgptEffort, setChatgptEffort] = useState("");
+  const [chatgptWebSearch, setChatgptWebSearch] = useState(false);
+  const [chatgptConnected, setChatgptConnected] = useState(false);
   const [codexPath, setCodexPath] = useState("codex");
   const [codexModel, setCodexModel] = useState("");
   const [codexReasoningEffort, setCodexReasoningEffort] = useState("");
@@ -90,7 +95,10 @@ export default function SetupModal() {
     (async () => {
       try {
         const settings: any = await invoke("get_settings");
-        setChatBackend(settings.chatBackend === "codex" ? "codex" : "openai");
+        setChatBackend(settings.chatBackend === "chatgpt" ? "chatgpt" : settings.chatBackend === "codex" ? "codex" : "openai");
+        setChatgptModel(settings.chatgptModel || "");
+        setChatgptEffort(settings.chatgptReasoningEffort || "");
+        setChatgptWebSearch(settings.chatgptWebSearch === true);
         setCodexPath(settings.codexPath || "codex");
         setCodexModel(settings.codexModel || "");
         setCodexReasoningEffort(settings.codexReasoningEffort || "");
@@ -165,12 +173,16 @@ export default function SetupModal() {
   }, [localEmbedModel, models, embedBackend]);
 
   async function handleTest() {
+    if (chatBackend === "chatgpt" && (!chatgptConnected || !chatgptModel)) {
+      setSaveError("Connect your ChatGPT account and select a model first."); return;
+    }
     setTesting(true);
     setTestResult(null);
     try {
       await invoke("set_settings", {
         settings: {
           chatBackend, codexPath, codexModel,
+          chatgptModel, chatgptReasoningEffort: chatgptEffort, chatgptWebSearch,
           codexReasoningEffort: codexReasoningEffort || selectedCodexModel?.defaultReasoningEffort || "",
           codexWebSearch,
           chatBaseUrl: localBaseUrl,
@@ -210,11 +222,15 @@ export default function SetupModal() {
   }
 
   async function handleSave() {
+    if (chatBackend === "chatgpt" && (!chatgptConnected || !chatgptModel)) {
+      setSaveError("Connect your ChatGPT account and select a model first."); return;
+    }
     setSaveError(null);
     try {
       await invoke("set_settings", {
         settings: {
           chatBackend, codexPath, codexModel,
+          chatgptModel, chatgptReasoningEffort: chatgptEffort, chatgptWebSearch,
           codexReasoningEffort: codexReasoningEffort || selectedCodexModel?.defaultReasoningEffort || "",
           codexWebSearch,
           chatBaseUrl: localBaseUrl,
@@ -307,8 +323,9 @@ export default function SetupModal() {
           <div style={sectionTitleStyle}>Chat (required)</div>
           <label style={labelStyle} htmlFor="chat-provider">Provider</label>
           <select id="chat-provider" value={chatBackend} style={inputStyle}
-            onChange={(e) => setChatBackend(e.target.value as "openai" | "codex")}>
+            onChange={(e) => setChatBackend(e.target.value as "openai" | "codex" | "chatgpt")}>
             <option value="openai">OpenAI-compatible API</option>
+            <option value="chatgpt">ChatGPT (Sign in with ChatGPT)</option>
             <option value="codex">Codex CLI (existing login)</option>
           </select>
           <label style={labelStyle} htmlFor="response-language">Response language / 回答言語</label>
@@ -319,7 +336,9 @@ export default function SetupModal() {
             <option value="en">English</option>
           </select>
           <p style={hintStyle}>選択箇所の説明と通常の回答に使用します。</p>
-          {chatBackend === "codex" ? <>
+          {chatBackend === "chatgpt" ? <ChatGptSettings model={chatgptModel} setModel={setChatgptModel}
+            effort={chatgptEffort} setEffort={setChatgptEffort} webSearch={chatgptWebSearch} setWebSearch={setChatgptWebSearch}
+            onConnectedChange={setChatgptConnected} /> : chatBackend === "codex" ? <>
             <label style={labelStyle} htmlFor="codex-path">Codex executable</label>
             <input id="codex-path" style={inputStyle} value={codexPath} onChange={(e) => setCodexPath(e.target.value)} placeholder="codex" />
             <label style={labelStyle} htmlFor="codex-model">Codex model</label>

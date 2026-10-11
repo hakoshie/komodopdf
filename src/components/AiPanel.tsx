@@ -6,6 +6,7 @@ import MarkdownRenderer from "./MarkdownRenderer";
 import { responseLanguage, selectionQuestion } from "../utils/responseLanguage";
 import { useCtrlWheelZoom } from "../hooks/useCtrlWheelZoom";
 import { useChatHistory } from "../hooks/useChatHistory";
+import { openUrl } from "@tauri-apps/plugin-opener";
 
 interface ChatEvent {
   kind: "sources" | "token" | "done" | "error";
@@ -46,7 +47,7 @@ export default function AiPanel() {
         store.setApiKeyPresent(isConfigured);
         store.setConfigured(isConfigured);
         store.setConfig({
-          chatBackend: settings.chatBackend === "codex" ? "codex" : "openai",
+          chatBackend: settings.chatBackend === "chatgpt" ? "chatgpt" : settings.chatBackend === "codex" ? "codex" : "openai",
           embedBackend: settings.embedBackend === "remote" ? "remote" : "local",
           embedBaseUrl: settings.embedBaseUrl || "",
           embedModelRemote: settings.embedModelRemote || "",
@@ -217,6 +218,7 @@ export default function AiPanel() {
     chatHistoryReady,
     streaming,
     configured,
+    chatBackend,
     responseLanguage: language,
     indexState,
     setActiveModal,
@@ -280,6 +282,9 @@ export default function AiPanel() {
         </div>
       </div>
 
+      {chatBackend === "chatgpt" && <div style={{ padding: "6px 16px", fontSize: 12, color: "var(--text-muted)" }}>
+        Using ChatGPT plan · <button onClick={() => { void openUrl("https://chatgpt.com/settings/usage").catch(() => setActiveModal("setup")); }}>Manage usage</button>
+      </div>}
       {fileHash && <div style={{ padding: "8px 16px", borderBottom: "1px solid var(--border)", fontSize: 12 }}>
         <label htmlFor="chat-history" style={{ color: "var(--text-muted)" }}>Chat history / 履歴</label>
         <div style={{ display: "flex", gap: 6, marginTop: 4 }}>

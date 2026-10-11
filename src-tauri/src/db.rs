@@ -44,6 +44,12 @@ fn chat_timestamp() -> i64 {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Settings {
+    #[serde(default)]
+    pub chatgpt_model: String,
+    #[serde(default)]
+    pub chatgpt_reasoning_effort: String,
+    #[serde(default)]
+    pub chatgpt_web_search: bool,
     #[serde(default = "default_chat_backend")]
     pub chat_backend: String,
     #[serde(default = "default_codex_path")]
@@ -84,6 +90,9 @@ fn default_response_language() -> String {
 impl Default for Settings {
     fn default() -> Self {
         Self {
+            chatgpt_model: String::new(),
+            chatgpt_reasoning_effort: String::new(),
+            chatgpt_web_search: false,
             chat_backend: default_chat_backend(),
             codex_path: default_codex_path(),
             codex_model: String::new(),
