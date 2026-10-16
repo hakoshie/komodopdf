@@ -1,6 +1,7 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { mockIPC } from "@tauri-apps/api/mocks";
+import { emit } from "@tauri-apps/api/event";
 import App from "../../src/App";
 import { fixturePdf } from "./pdf";
 import { useReaderStore } from "../../src/state/useReaderStore";
@@ -26,6 +27,14 @@ const authStatus = { accounts: [] as any[], activeAccount: null as string | null
 (window as any).__completeChatgptSignIn = () => {
   Object.assign(authStatus, { accounts: [{ id: "issued-account", label: "user@example.test", connected: true }], activeAccount: "issued-account", connected: true, pending: false, showWelcome: true });
 };
+const nativePdfPaths: string[] = (window as any).__initialPdfPaths || [];
+const readPaths: string[] = [];
+(window as any).__readPdfPaths = readPaths;
+(window as any).__readerStore = useReaderStore;
+(window as any).__openNativePdfs = (paths: string[]) => {
+  nativePdfPaths.push(...paths);
+  return emit("pdf-open-requested");
+};
 mockIPC(async (cmd, args: any) => {
   switch (cmd) {
     case "chatgpt_status": return structuredClone(authStatus);
@@ -34,6 +43,7 @@ mockIPC(async (cmd, args: any) => {
     case "chatgpt_welcome_seen": authStatus.showWelcome = false; return;
     case "sign_out_chatgpt": authStatus.connected = false; authStatus.accounts[0].connected = false; return true;
     case "list_chatgpt_models": return [{ id: "plan-model", displayName: "Plan model", supportedReasoningEfforts: ["low", "high"] }];
+    case "take_pdf_open_requests": return nativePdfPaths.splice(0);
     case "get_settings": return settings;
     case "set_settings": Object.assign(settings, args.settings); return;
     case "has_api_key": return false;
@@ -47,8 +57,16 @@ mockIPC(async (cmd, args: any) => {
     case "test_connection": return { chatOk: true, embedOk: true };
     case "plugin:opener|open_url": openedUrls.push(args.url); return;
     case "plugin:dialog|open": return (window as any).__pdfName || "fixture.pdf";
-    case "plugin:fs|read_file": return Array.from(fixturePdf((window as any).__pdfVariant || ""));
+    case "plugin:fs|read_file":
+      readPaths.push(args.path);
+      if (args.path.endsWith("missing.pdf")) throw new Error("File not found");
+      return Array.from(fixturePdf((window as any).__pdfVariant || ""));
     case "is_indexed": return true;
+    case "is_audit_enabled": return false;
+    case "index_document_cmd":
+      args.progress.onmessage({ done: 1, total: args.pages.length });
+      if ((window as any).__pauseIndex) await new Promise<void>((resolve) => { (window as any).__finishIndex = resolve; });
+      return;
     case "list_conversations": {
       if ((window as any).__failHistory) throw new Error("History storage unavailable");
       return Object.values(conversations).filter((chat: any) => chat.fileHash === args.fileHash)
@@ -95,5 +113,5 @@ mockIPC(async (cmd, args: any) => {
     }
     default: throw new Error(`Unexpected IPC command: ${cmd}`);
   }
-});
+}, { shouldMockEvents: true });
 createRoot(document.getElementById("root")!).render(<React.StrictMode><App /></React.StrictMode>);

@@ -3,18 +3,21 @@ import { Panel, PanelGroup, PanelResizeHandle, type ImperativePanelHandle } from
 import { invoke } from "@tauri-apps/api/core";
 import { Channel } from "@tauri-apps/api/core";
 import Toolbar from "./components/Toolbar";
+import DocumentTabs from "./components/DocumentTabs";
 import OutlineSidebar from "./components/OutlineSidebar";
 import ReaderPane from "./components/ReaderPane";
 import AiPanel from "./components/AiPanel";
 import SetupModal from "./components/SetupModal";
 import IndexConfirmModal from "./components/IndexConfirmModal";
 import IndexingModal from "./components/IndexingModal";
-import { useReaderStore } from "./state/useReaderStore";
+import { useReaderStore, getDocumentState, updateDocumentState } from "./state/useReaderStore";
 import { extractAllPages } from "./pdf/extract";
 import "./styles/theme.css";
 
+const indexingJobs = new WeakMap<object, { cancelled: boolean }>();
+
 function App() {
-  const { activeModal, fileHash, pdfDoc, aiOpen, setAiOpen, setIndexState, setIndexProgress } = useReaderStore();
+  const { activeModal, fileHash, pdfDoc, aiOpen, setAiOpen } = useReaderStore();
   const aiPanelRef = useRef<ImperativePanelHandle>(null);
 
   useEffect(() => {
@@ -26,12 +29,25 @@ function App() {
   // Handle indexing when modal is "indexing"
   useEffect(() => {
     if (activeModal !== "indexing" || !fileHash || !pdfDoc) return;
-    let cancelled = false;
+    if (indexingJobs.get(pdfDoc)?.cancelled === false) return;
+    const doc = pdfDoc;
+    const job = { cancelled: false };
+    indexingJobs.set(doc, job);
+    const update = (patch: Parameters<typeof updateDocumentState>[1]) => {
+      if (!job.cancelled) updateDocumentState(doc, patch);
+    };
+    const unsubscribe = useReaderStore.subscribe((state, previous) => {
+      if (state.pdfDoc === doc && previous.pdfDoc === doc && previous.activeModal === "indexing"
+        && state.activeModal === "none" && state.indexState !== "ready") {
+        job.cancelled = true;
+        updateDocumentState(doc, { indexState: "idle", indexProgress: null, pendingQuestion: null });
+      }
+    });
 
     async function run() {
-      setIndexState("extracting");
+      update({ indexState: "extracting" });
       const pages = await extractAllPages(pdfDoc!);
-      if (cancelled) return;
+      if (job.cancelled || !getDocumentState(doc)) return;
 
       const auditEnabled = await invoke("is_audit_enabled").catch(() => false) as boolean;
       if (auditEnabled) {
@@ -47,12 +63,12 @@ function App() {
 
       const textPages = pages.filter((p) => p.hasText);
 
-      if (cancelled) return;
+      if (job.cancelled || !getDocumentState(doc)) return;
 
-      setIndexState("indexing");
+      update({ indexState: "indexing" });
       const progressChannel = new Channel<{ done: number; total: number }>();
       progressChannel.onmessage = (msg) => {
-        if (!cancelled) setIndexProgress(msg);
+        update({ indexProgress: msg });
       };
 
       try {
@@ -61,39 +77,27 @@ function App() {
           pages: textPages,
           progress: progressChannel,
         });
-        if (!cancelled) {
-          setIndexProgress(null);
-          setIndexState("ready");
-          useReaderStore.getState().setActiveModal("none");
-          // pendingQuestion stays in store; AiPanel will pick it up via its own effect
-        }
+        update({ indexProgress: null, indexState: "ready", activeModal: "none" });
       } catch (e) {
-        if (!cancelled) {
-          useReaderStore.getState().setPendingQuestion(null);
-          useReaderStore.getState().addMessage({ role: "assistant", content: `Indexing failed: ${String(e)}` });
-          setIndexState("idle");
-          setIndexProgress(null);
-          useReaderStore.getState().setActiveModal("none");
-        }
+        fail(e);
       }
     }
-
-    run().catch((e) => {
-      if (cancelled) return;
-      setIndexState("idle");
-      setIndexProgress(null);
-      useReaderStore.getState().setActiveModal("none");
-      useReaderStore.getState().setPendingQuestion(null);
-      useReaderStore.getState().addMessage({ role: "assistant", content: `Indexing failed: ${String(e)}` });
+    function fail(error: unknown) {
+      const state = getDocumentState(doc);
+      if (job.cancelled || !state) return;
+      update({ pendingQuestion: null, indexState: "idle", indexProgress: null, activeModal: "none",
+        messages: [...state.messages, { role: "assistant", content: `Indexing failed: ${String(error)}` }] });
+    }
+    void run().catch(fail).finally(() => {
+      unsubscribe();
+      if (indexingJobs.get(doc) === job) indexingJobs.delete(doc);
     });
-    return () => {
-      cancelled = true;
-    };
   }, [activeModal, fileHash, pdfDoc]);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
       <Toolbar />
+      <DocumentTabs />
       <div style={{ display: "flex", flex: 1, overflow: "hidden", position: "relative", minHeight: 0 }}>
         <OutlineSidebar />
         <PanelGroup direction="horizontal" style={{ flex: 1, minWidth: 0 }}>

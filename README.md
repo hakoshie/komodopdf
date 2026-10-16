@@ -32,6 +32,7 @@ navigation, and text selection all work whether or not you ever turn the AI pane
 ## Features
 
 ### Reading
+- Open multiple PDFs in tabs, including files opened from Windows. Each tab keeps its reading position, zoom, chat draft, and selected conversation while the app is open. Opening the same path focuses its existing tab. Use **Ctrl+Tab** / **Ctrl+Shift+Tab** to switch tabs and **Ctrl+W** to close the current tab.
 - 📖 Open any PDF with smooth continuous scroll
 - 🔍 Zoom in/out, fit-width, fit-page
 - Hold **Ctrl** and scroll the mouse wheel to zoom the pane under the pointer: PDF magnification over the document, or conversation/input text size over Ask Komodo (including formulas, tables and code). Scroll up to enlarge and down to reduce; scrolling without Ctrl stays normal.

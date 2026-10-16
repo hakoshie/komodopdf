@@ -374,12 +374,12 @@ test("PDF chat histories survive restart, keep citations, and continue the selec
   await expect(page.locator(".katex-display")).toHaveCount(2);
   await expect(page.getByRole("button", { name: "p.2", exact: true })).toBeVisible();
   await page.screenshot({ path: "test-results/pdf-chat-history.png" });
-  await page.evaluate(() => { (window as any).__pdfVariant = " other document"; });
+  await page.evaluate(() => { (window as any).__pdfVariant = " other document"; (window as any).__pdfName = "other-document.pdf"; });
   await page.getByRole("button", { name: "Open PDF", exact: true }).click();
   await expect(history).toHaveValue("");
   await expect(history.locator("option")).toHaveCount(1);
   await expect(page.locator(".katex-display")).toHaveCount(0);
-  await page.evaluate(() => { (window as any).__pdfVariant = ""; });
+  await page.evaluate(() => { (window as any).__pdfVariant = ""; (window as any).__pdfName = "renamed-copy.pdf"; });
   await page.getByRole("button", { name: "Open PDF", exact: true }).click();
   await expect(history).toHaveValue(first);
   await expect(history.locator("option")).toHaveCount(3);
@@ -393,13 +393,13 @@ test("an answer keeps saving to its original PDF when another file is opened", a
   await expect(page.getByLabel("Chat history / 履歴", { exact: true })).toBeDisabled();
   await expect(page.getByRole("button", { name: "New chat / 新しい会話", exact: true })).toBeDisabled();
   await expect.poll(() => page.evaluate(() => typeof (window as any).__finishReply)).toBe("function");
-  await page.evaluate(() => { (window as any).__pdfVariant = " other document"; });
+  await page.evaluate(() => { (window as any).__pdfVariant = " other document"; (window as any).__pdfName = "other-document.pdf"; });
   await page.getByRole("button", { name: "Open PDF", exact: true }).click();
   await expect(page.getByLabel("Chat history / 履歴", { exact: true })).toBeEnabled();
   await page.evaluate(() => { (window as any).__finishReply(); });
   await page.waitForTimeout(100);
   await expect(page.locator(".katex-display")).toHaveCount(0);
-  await page.evaluate(() => { (window as any).__pdfVariant = ""; });
+  await page.evaluate(() => { (window as any).__pdfVariant = ""; (window as any).__pdfName = "fixture.pdf"; });
   await page.getByRole("button", { name: "Open PDF", exact: true }).click();
   await expect(page.getByText("Answer in the original PDF", { exact: true })).toBeVisible();
   await expect(page.locator(".katex-display")).toHaveCount(1);
@@ -411,7 +411,7 @@ test("failed answers remain in history and failed history loads can be retried",
   await page.getByPlaceholder("Ask anything...").press("Enter");
   await expect(page.getByText("Test provider failure", { exact: false })).toBeVisible();
   await expect(page.getByLabel("Chat history / 履歴", { exact: true }).locator("option")).toHaveCount(2);
-  await page.evaluate(() => { (window as any).__failHistory = true; });
+  await page.evaluate(() => { (window as any).__failHistory = true; (window as any).__pdfName = "history-retry.pdf"; });
   await page.getByRole("button", { name: "Open PDF", exact: true }).click();
   await expect(page.getByRole("alert")).toContainText("History storage unavailable");
   await expect(page.getByPlaceholder("Ask anything...")).toBeDisabled();
@@ -435,7 +435,7 @@ test("a delayed history load cannot replace the conversation of a newly opened P
   await expect(history.locator("option")).toHaveCount(3);
   await page.evaluate(() => { (window as any).__historyDelay = 500; });
   await history.selectOption(first);
-  await page.evaluate(() => { (window as any).__pdfVariant = " other document"; });
+  await page.evaluate(() => { (window as any).__pdfVariant = " other document"; (window as any).__pdfName = "other-document.pdf"; });
   await page.getByRole("button", { name: "Open PDF", exact: true }).click();
   await expect(history).toBeEnabled();
   await page.waitForTimeout(600);

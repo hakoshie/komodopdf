@@ -2,9 +2,14 @@ mod chatgpt_auth;
 mod db;
 mod llm;
 mod models;
+mod open_requests;
 mod portable;
 mod rag;
 mod secrets;
+#[cfg(target_os = "windows")]
+mod windows_identity;
+#[cfg(target_os = "windows")]
+mod launch_dispatcher;
 
 use db::{Db, SavedMessage, Settings};
 use futures_util::StreamExt;
@@ -17,7 +22,8 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tauri::ipc::Channel;
-use tauri::Manager;
+use tauri::{Emitter, Manager};
+use tauri_plugin_fs::FsExt;
 
 fn log_level_filter(level: &str) -> log::LevelFilter {
     match level.to_lowercase().as_str() {
@@ -718,9 +724,62 @@ fn open_models_folder_cmd(app: tauri::AppHandle, model_id: Option<String>) -> Re
     tauri_plugin_opener::reveal_item_in_dir(&path).map_err(|e| e.to_string())
 }
 
+// The event is a wake-up; the managed queue remains authoritative even before
+// the webview (or other plugins) is ready.
+fn queue_open_requests(app: &tauri::AppHandle, args: Vec<String>, cwd: &std::path::Path) {
+    let paths = open_requests::pdf_paths(args, cwd)
+        .into_iter()
+        .filter_map(|path| path.to_str().map(str::to_owned))
+        .collect::<Vec<_>>();
+    if !paths.is_empty() {
+        app.state::<open_requests::OpenRequests>().push(paths);
+        let _ = app.emit_to("main", "pdf-open-requested", ());
+    }
+}
+
+#[tauri::command]
+fn take_pdf_open_requests(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, open_requests::OpenRequests>,
+) -> Result<Vec<String>, String> {
+    let paths = state.drain();
+    // Scope only the individual OS-requested files, after all plugins are
+    // initialized. No unrestricted directory read permission is needed.
+    for path in &paths {
+        app.fs_scope().allow_file(path).map_err(|e| e.to_string())?;
+    }
+    Ok(paths)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let context = tauri::generate_context!();
+    #[cfg(target_os = "windows")]
+    windows_identity::set_app_id(&context.config().identifier)
+        .expect("Failed to initialise Windows taskbar identity");
+    let builder = tauri::Builder::default().manage(open_requests::OpenRequests::default());
+    // Register first so a second process exits before opening the DB or key store.
+    #[cfg(target_os = "windows")]
+    let builder = {
+        let launches = std::sync::OnceLock::<launch_dispatcher::LaunchDispatcher>::new();
+        builder.plugin(tauri_plugin_single_instance::init(move |app, args, cwd| {
+            let dispatcher = launches.get_or_init(|| {
+                let app = app.clone();
+                launch_dispatcher::LaunchDispatcher::new(move |request| {
+                    queue_open_requests(&app, request.args, std::path::Path::new(&request.cwd));
+                    if let Some(window) = app.get_webview_window("main") {
+                        let _ = window.show();
+                        let _ = window.unminimize();
+                        let _ = window.set_focus();
+                    }
+                })
+            });
+            if dispatcher.send(args, cwd).is_err() {
+                log::error!("PDF launch worker stopped unexpectedly");
+            }
+        }))
+    };
+    builder
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
@@ -741,9 +800,13 @@ pub fn run() {
             // even when the OS keyring is unavailable.
             secrets::init_file_path(app_data_dir.join("secrets.json"));
             app.manage(db);
+            if let Ok(cwd) = std::env::current_dir() {
+                queue_open_requests(app.handle(), std::env::args().collect(), &cwd);
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            take_pdf_open_requests,
             set_api_key,
             has_api_key,
             delete_api_key,
@@ -772,6 +835,6 @@ pub fn run() {
             download_model_cmd,
             open_models_folder_cmd,
         ])
-        .run(tauri::generate_context!())
+        .run(context)
         .expect("error while running tauri application");
 }

@@ -161,7 +161,11 @@ export default function ReaderPane() {
     const previous = geometryRef.current;
     let top: number;
     if (!previous || previous.doc !== pdfDoc || previous.navigation !== navigation) {
-      top = (pages[useReaderStore.getState().currentPage - 1]?.top ?? 16) - 16;
+      const state = useReaderStore.getState();
+      const anchor = previous?.doc !== pdfDoc ? state.scrollAnchor : null;
+      const page = anchor ? pages[anchor.page - 1] : undefined;
+      top = page && anchor ? page.top + anchor.fraction * page.height - 16
+        : (pages[state.currentPage - 1]?.top ?? 16) - 16;
     } else {
       // Preserve the same point within the page when the outline, pane size or zoom changes.
       const oldTop = positionRef.current.top + 16;
@@ -173,7 +177,7 @@ export default function ReaderPane() {
     }
     geometryRef.current = { doc: pdfDoc!, navigation, pages };
     navigatingRef.current = true;
-    container.scrollTo({ top, left: previous?.doc === pdfDoc ? positionRef.current.left : 0, behavior: "instant" });
+    container.scrollTo({ top, left: previous?.doc === pdfDoc ? positionRef.current.left : useReaderStore.getState().scrollAnchor?.left ?? 0, behavior: "instant" });
     positionRef.current = { top: container.scrollTop, left: container.scrollLeft };
     // Scroll-originated page changes never trigger this effect.
     const frame = requestAnimationFrame(() => { navigatingRef.current = false; });
@@ -183,7 +187,17 @@ export default function ReaderPane() {
   useEffect(() => () => cancelAnimationFrame(frameRef.current), []);
   const handleScroll = useCallback(() => {
     const container = scrollRef.current;
-    if (container) positionRef.current = { top: container.scrollTop, left: container.scrollLeft };
+    if (container) {
+      positionRef.current = { top: container.scrollTop, left: container.scrollLeft };
+      const geometry = geometryRef.current;
+      if (geometry?.doc === useReaderStore.getState().pdfDoc && !navigatingRef.current) {
+        const top = container.scrollTop + 16;
+        let index = 0;
+        while (index + 1 < geometry.pages.length && geometry.pages[index + 1].top <= top) index++;
+        const page = geometry.pages[index];
+        if (page) useReaderStore.setState({ scrollAnchor: { page: index + 1, fraction: (top - page.top) / page.height, left: container.scrollLeft } });
+      }
+    }
     if (frameRef.current) return;
     frameRef.current = requestAnimationFrame(() => {
       frameRef.current = 0;

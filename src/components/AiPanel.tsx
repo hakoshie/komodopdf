@@ -1,7 +1,7 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useRef, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Channel } from "@tauri-apps/api/core";
-import { useReaderStore } from "../state/useReaderStore";
+import { useReaderStore, getDocumentState, updateDocumentState } from "../state/useReaderStore";
 import MarkdownRenderer from "./MarkdownRenderer";
 import { responseLanguage, selectionQuestion } from "../utils/responseLanguage";
 import { useCtrlWheelZoom } from "../hooks/useCtrlWheelZoom";
@@ -14,14 +14,17 @@ interface ChatEvent {
 }
 
 export default function AiPanel() {
-  const [input, setInput] = useState("");
-  const [textZoom, setTextZoom] = useState(1);
+  const input = useReaderStore((s) => s.chatDraft);
+  const textZoom = useReaderStore((s) => s.chatTextZoom);
+  const setInput = (chatDraft: string) => useReaderStore.setState({ chatDraft });
+  const setTextZoom = (update: (zoom: number) => number) => useReaderStore.setState((s) => ({ chatTextZoom: update(s.chatTextZoom) }));
   const panelRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const chatHistory = useChatHistory();
   useCtrlWheelZoom(panelRef, (factor) => setTextZoom((zoom) => Math.max(0.75, Math.min(2.5, zoom * factor))));
-  useEffect(() => { autoResize(); }, [textZoom]);
+  const activeTabId = useReaderStore((s) => s.activeTabId);
+  useEffect(() => { autoResize(); }, [textZoom, activeTabId]);
 
   function autoResize() {
     const ta = textareaRef.current;
@@ -95,34 +98,40 @@ export default function AiPanel() {
     let sources: any[] = [];
     let conversationId = store.conversationId;
 
+    const doc = store.pdfDoc!;
+    const append = (token: string) => {
+      const state = getDocumentState(doc);
+      if (!state || state.conversationId !== conversationId) return;
+      const messages = [...state.messages];
+      const last = messages[messages.length - 1];
+      if (last?.role === "assistant") messages[messages.length - 1] = { ...last, content: last.content + token };
+      else messages.push({ role: "assistant", content: token });
+      updateDocumentState(doc, { messages });
+    };
+    const finish = () => {
+      const state = getDocumentState(doc);
+      if (!state || state.conversationId !== conversationId) return;
+      const messages = [...state.messages];
+      const last = messages[messages.length - 1];
+      if (last?.role === "assistant") messages[messages.length - 1] = { ...last, citations: parseCitations(last.content), sources };
+      updateDocumentState(doc, { messages });
+    };
     channel.onmessage = (event) => {
-      const store2 = useReaderStore.getState();
-      if (store2.pdfDoc !== store.pdfDoc || store2.conversationId !== conversationId) return;
-      if (event.kind === "sources") {
-        sources = event.data || [];
-      } else if (event.kind === "token") {
-        store2.appendToken(event.data as string);
-      } else if (event.kind === "done") {
-        const msgs = [...store2.messages];
-        const lastMsg = msgs[msgs.length - 1];
-        if (lastMsg && lastMsg.role === "assistant") {
-          const cited = parseCitations(lastMsg.content);
-          lastMsg.citations = cited;
-          lastMsg.sources = sources;
-          msgs[msgs.length - 1] = lastMsg;
-          useReaderStore.setState({ messages: msgs });
-        }
-      } else if (event.kind === "error") {
-        store2.appendToken(`\n[Error: ${event.data}]`);
-      }
+      const state = getDocumentState(doc);
+      if (!state || state.conversationId !== conversationId) return;
+      if (event.kind === "sources") sources = event.data || [];
+      else if (event.kind === "token") append(event.data as string);
+      else if (event.kind === "done") finish();
+      else if (event.kind === "error") append(`\n[Error: ${event.data}]`);
     };
 
     try {
       if (!conversationId) {
-        conversationId = crypto.randomUUID();
-        await invoke("create_conversation", { fileHash: store.fileHash, conversationId });
-        if (useReaderStore.getState().pdfDoc !== store.pdfDoc) return;
-        useReaderStore.setState({ conversationId });
+        const createdId = crypto.randomUUID();
+        await invoke("create_conversation", { fileHash: store.fileHash, conversationId: createdId });
+        if (!getDocumentState(doc)) return;
+        conversationId = createdId;
+        updateDocumentState(doc, { conversationId });
       }
       await invoke("ask", {
         fileHash: store.fileHash,
@@ -136,19 +145,13 @@ export default function AiPanel() {
         persona: store.persona,
       });
     } catch (e: any) {
-      const store2 = useReaderStore.getState();
-      if (store2.pdfDoc !== store.pdfDoc || store2.conversationId !== conversationId) return;
-      store2.appendToken(`\n[Error: ${e.toString()}]`);
+      append(`\n[Error: ${e.toString()}]`);
     } finally {
-      if (useReaderStore.getState().pdfDoc === store.pdfDoc && useReaderStore.getState().conversationId === conversationId) {
-        const msgs = [...useReaderStore.getState().messages];
-        const last = msgs[msgs.length - 1];
-        if (last?.role === "assistant") {
-          msgs[msgs.length - 1] = { ...last, citations: parseCitations(last.content), sources };
-          useReaderStore.setState({ messages: msgs });
-        }
-        useReaderStore.getState().setStreaming(false);
-        await chatHistory.refresh();
+      const state = getDocumentState(doc);
+      if (state?.conversationId === conversationId) {
+        finish();
+        updateDocumentState(doc, { streaming: false });
+        if (useReaderStore.getState().pdfDoc === doc) await chatHistory.refresh();
       }
     }
   }, [input, chatHistory.refresh]);
@@ -161,12 +164,18 @@ export default function AiPanel() {
     return useReaderStore.subscribe((state, prevState) => {
       if (
         state.indexState === "ready" &&
-        prevState.indexState !== "ready" &&
+        (prevState.indexState !== "ready" || prevState.pdfDoc !== state.pdfDoc) &&
         state.pendingQuestion
       ) {
         const q = state.pendingQuestion;
-        useReaderStore.getState().setPendingQuestion(null);
-        setTimeout(() => doAskRef.current(q), 50);
+        const doc = state.pdfDoc;
+        setTimeout(() => {
+          const current = useReaderStore.getState();
+          if (current.pdfDoc === doc && current.pendingQuestion === q) {
+            current.setPendingQuestion(null);
+            void doAskRef.current(q);
+          }
+        }, 0);
       }
     });
   }, []);

@@ -298,3 +298,10 @@ textarea:focus-visible {
 .pdf-text-layer {
   --scale-factor: 1;
 }
+.document-tabs { display: flex; flex-shrink: 0; overflow-x: auto; background: var(--surface-raised); border-bottom: 1px solid var(--border); }
+.document-tab { display: flex; align-items: center; min-width: 120px; max-width: 240px; flex-shrink: 0; border-right: 1px solid var(--border); border-top: 2px solid transparent; color: var(--text-muted); }
+.document-tab.active { border-top-color: var(--accent); background: var(--surface); color: var(--text); }
+.document-tab [role="tab"] { flex: 1; min-width: 0; padding: 8px 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; color: inherit; }
+.document-tab .close-tab { margin-right: 6px; padding: 2px 6px; border-radius: 4px; color: inherit; }
+.document-tab button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.document-tab .close-tab:hover { background: var(--surface-lowered); }

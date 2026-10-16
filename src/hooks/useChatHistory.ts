@@ -24,16 +24,16 @@ export function useChatHistory() {
     setError("");
     if (!fileHash || !pdfDoc) { setLoading(false); return; }
     setLoading(true);
-    useReaderStore.setState({ chatHistoryReady: false });
+    const restoreHistory = !useReaderStore.getState().chatHistoryReady;
     const current = () => version === request.current && useReaderStore.getState().pdfDoc === pdfDoc;
     void (async () => {
       try {
         const list = await invoke<ConversationSummary[]>("list_conversations", { fileHash });
         const latest = list[0];
-        const saved = latest ? await invoke<SavedConversation>("load_conversation", { fileHash, conversationId: latest.id }) : null;
+        const saved = restoreHistory && latest ? await invoke<SavedConversation>("load_conversation", { fileHash, conversationId: latest.id }) : null;
         if (!current()) return;
         setConversations(list);
-        useReaderStore.setState({ conversationId: saved?.id ?? null, messages: saved?.messages ?? [], chatHistoryReady: true });
+        if (restoreHistory) useReaderStore.setState({ conversationId: saved?.id ?? null, messages: saved?.messages ?? [], chatHistoryReady: true });
       } catch (e) {
         if (current()) setError(`Could not load chat history / 履歴を読み込めませんでした: ${String(e)}`);
       } finally {
