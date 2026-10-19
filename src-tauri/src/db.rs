@@ -347,6 +347,9 @@ impl Db {
         for row in rows {
             let (key, value) = row?;
             match key.as_str() {
+                "chatgpt_model" => settings.chatgpt_model = value,
+                "chatgpt_reasoning_effort" => settings.chatgpt_reasoning_effort = value,
+                "chatgpt_web_search" => settings.chatgpt_web_search = value == "true",
                 "chat_backend" => settings.chat_backend = value,
                 "codex_path" => settings.codex_path = value,
                 "codex_model" => settings.codex_model = value,
@@ -374,6 +377,19 @@ impl Db {
         let top_k_str = settings.top_k.to_string();
         let configured_str = if settings.configured { "true" } else { "false" };
         let pairs = [
+            ("chatgpt_model", settings.chatgpt_model.as_str()),
+            (
+                "chatgpt_reasoning_effort",
+                settings.chatgpt_reasoning_effort.as_str(),
+            ),
+            (
+                "chatgpt_web_search",
+                if settings.chatgpt_web_search {
+                    "true"
+                } else {
+                    "false"
+                },
+            ),
             ("chat_backend", settings.chat_backend.as_str()),
             ("codex_path", settings.codex_path.as_str()),
             ("codex_model", settings.codex_model.as_str()),
@@ -498,6 +514,47 @@ mod tests {
         };
         db.migrate().unwrap();
         db
+    }
+
+    #[test]
+    fn chatgpt_settings_survive_reopening_and_can_be_reset() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("settings.sqlite");
+        let open = || {
+            let db = Db {
+                conn: Mutex::new(Connection::open(&path).unwrap()),
+                history: Mutex::new(Connection::open_in_memory().unwrap()),
+            };
+            db.migrate().unwrap();
+            db
+        };
+        {
+            let db = open();
+            let mut settings = db.get_settings().unwrap();
+            assert_eq!(settings.chatgpt_model, "");
+            assert_eq!(settings.chatgpt_reasoning_effort, "");
+            assert!(!settings.chatgpt_web_search);
+            settings.chat_backend = "chatgpt".into();
+            settings.chatgpt_model = "account-catalog-model".into();
+            settings.chatgpt_reasoning_effort = "high".into();
+            settings.chatgpt_web_search = true;
+            db.set_settings(&settings).unwrap();
+        }
+        let db = open();
+        let mut settings = db.get_settings().unwrap();
+        assert_eq!(settings.chat_backend, "chatgpt");
+        assert_eq!(settings.chatgpt_model, "account-catalog-model");
+        assert_eq!(settings.chatgpt_reasoning_effort, "high");
+        assert!(settings.chatgpt_web_search);
+        settings.chatgpt_model.clear();
+        settings.chatgpt_reasoning_effort.clear();
+        settings.chatgpt_web_search = false;
+        db.set_settings(&settings).unwrap();
+        drop(db);
+        let settings = open().get_settings().unwrap();
+        assert_eq!(settings.chatgpt_model, "");
+        assert_eq!(settings.chatgpt_reasoning_effort, "");
+        assert!(!settings.chatgpt_web_search);
     }
 
     #[test]

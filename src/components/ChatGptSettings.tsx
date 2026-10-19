@@ -102,7 +102,7 @@ export default function ChatGptSettings({ model, setModel, effort, setEffort, we
       <button type="button" onClick={() => { void openUrl("https://chatgpt.com/settings/usage").catch((e) => setError(String(e))); }}>Manage usage</button>
     </div>
     {(error || status?.error) && <p role="alert" style={{ fontSize: 12, color: "#f59e0b" }}>{error || status?.error}</p>}
-    {status?.showWelcome && <div role="dialog" aria-label="You're using your ChatGPT plan" style={{ marginTop: 12, padding: 12, background: "var(--accent-tint)", borderRadius: 6 }}>
+    {status?.showWelcome && <div role="dialog" aria-label="You're using your ChatGPT plan" style={{ marginTop: 12, padding: 12, background: "var(--surface-raised)", color: "var(--text)", border: "1px solid var(--accent)", borderRadius: 6 }}>
       <strong>You're using your ChatGPT plan</strong>
       <p style={{ fontSize: 12 }}>Eligible requests in Komodo use your ChatGPT plan or credits. Manage usage in ChatGPT settings. Conversation history stays in Komodo.</p>
       <button type="button" onClick={() => { void action("chatgpt_welcome_seen"); }}>Got it</button>
@@ -120,7 +120,7 @@ export default function ChatGptSettings({ model, setModel, effort, setEffort, we
       <option value="">Model default / モデルの既定</option>
       {levels.map((level) => <option key={level} value={level}>{level}</option>)}
     </select>
-    <label><input type="checkbox" checked={webSearch} onChange={(e) => setWebSearch(e.target.checked)} /> Web search / ウェブ検索</label>
-    <p style={{ fontSize: 12, color: "var(--text-muted)" }}>Your questions and selected document excerpts are sent to OpenAI. Web search availability depends on your model and account. Embeddings are configured separately below.</p>
+    <label><input type="checkbox" checked={webSearch} onChange={(e) => setWebSearch(e.target.checked)} /> Allow web search / ウェブ検索を許可</label>
+    <p style={{ fontSize: 12, color: "var(--text-muted)" }}>When enabled, ChatGPT can search the web to help answer your questions. Your questions and selected document excerpts are sent to OpenAI. Web search availability depends on your model and account. Embeddings are configured separately below.</p>
   </div>;
 }
