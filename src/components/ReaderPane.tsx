@@ -225,7 +225,7 @@ export default function ReaderPane() {
   );
 
   return (
-    <div ref={scrollRef} onScroll={handleScroll} aria-label="PDF pages" style={{ position: "relative", height: "100%",
+    <div ref={scrollRef} className="pdf-pages" onScroll={handleScroll} aria-label="PDF pages" style={{ position: "relative", height: "100%",
       overflow: "auto", scrollbarGutter: "stable", background: "var(--canvas-bg)", padding: "16px", overflowAnchor: "none" }}>
       {error ? <p role="alert">Could not load PDF pages: {error}</p> : !ready ? <p>Loading pages…</p> :
         layout.pages.map((size, index) => {

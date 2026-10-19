@@ -56,6 +56,10 @@ textarea:focus-visible {
   height: 8px;
 }
 
+.pdf-pages::-webkit-scrollbar {
+  width: 12px;
+}
+
 ::-webkit-scrollbar-track {
   background: var(--surface-lowered);
 }

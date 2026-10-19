@@ -106,6 +106,9 @@ function App() {
           </Panel>
           <PanelResizeHandle
             className="resize-handle"
+            // Keep the drag target inside the visible divider; extra margins
+            // intercept the adjacent PDF scrollbar and Ask content.
+            hitAreaMargins={{ fine: 0, coarse: 0 }}
             disabled={!aiOpen}
             style={aiOpen ? undefined : { display: "none" }}
             aria-label="Resize PDF and Ask Komodo"
