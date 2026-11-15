@@ -42,6 +42,26 @@ navigation, and text selection all work whether or not you ever turn the AI pane
 - ✂️ Text selection with a real text layer (rendered via [pdf.js](https://mozilla.github.io/pdf.js/))
 - 🏷️ Per-page "no text layer" badge so you know which pages are scanned images
 
+### TeX rebuilds and reloading
+
+Open the output PDF once and leave **Auto reload** enabled. Komodo checks open
+files every second and reloads after their size/modification time stabilizes.
+The current tab, page, zoom, fit mode and position within the page are preserved
+(a page beyond a shortened document moves to its last page).
+
+Use **Reload** or **F5** to refresh manually, including when Auto reload is off.
+Files are read into memory, so Komodo does not keep the PDF locked against TeX.
+During temporary deletion, replacement or an invalid/incomplete build, the last
+working PDF stays visible and automatic checks retry. Hover **Update pending**
+for details. Reload waits for an active AI reply or indexing task to finish.
+After content changes, PDF-specific selection, citations and indexing are reset;
+saved chats remain associated with the previous file contents, and the unsent
+question draft is retained. Changes that preserve both file size and modification
+time require manual Reload.
+
+For source-to-PDF and Ctrl+double-click PDF-to-source navigation, see the
+[VS Code / LaTeX Workshop SyncTeX setup](docs/latex-workshop.md).
+
 ### Grounded AI panel
 - 💬 Ask questions about the open document and get **page-cited** answers
 - 🎯 Click a `[n]` citation → scroll to the source passage and highlight it

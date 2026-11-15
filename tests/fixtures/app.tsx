@@ -29,6 +29,10 @@ const authStatus = { accounts: [] as any[], activeAccount: null as string | null
 };
 const nativePdfPaths: string[] = (window as any).__initialPdfPaths || [];
 const readPaths: string[] = [];
+const diskPdfs = new Map<string, { bytes: Uint8Array; version: number }>();
+(window as any).__replacePdf = (path: string, label: string | null) => {
+  diskPdfs.set(path, { bytes: label === null ? new Uint8Array() : fixturePdf(label), version: Date.now() });
+};
 (window as any).__readPdfPaths = readPaths;
 (window as any).__readerStore = useReaderStore;
 (window as any).__openNativePdfs = (paths: string[]) => {
@@ -44,6 +48,7 @@ mockIPC(async (cmd, args: any) => {
     case "sign_out_chatgpt": authStatus.connected = false; authStatus.accounts[0].connected = false; return true;
     case "list_chatgpt_models": return [{ id: "plan-model", displayName: "Plan model", supportedReasoningEfforts: ["low", "high"] }];
     case "take_pdf_open_requests": return nativePdfPaths.splice(0);
+    case "take_synctex_requests": return [];
     case "get_settings": return settings;
     case "set_settings": Object.assign(settings, args.settings); return;
     case "has_api_key": return false;
@@ -57,10 +62,16 @@ mockIPC(async (cmd, args: any) => {
     case "test_connection": return { chatOk: true, embedOk: true };
     case "plugin:opener|open_url": openedUrls.push(args.url); return;
     case "plugin:dialog|open": return (window as any).__pdfName || "fixture.pdf";
+    case "plugin:fs|stat": {
+      const disk = diskPdfs.get(args.path);
+      if (!disk) throw new Error("File not found");
+      return { size: disk.bytes.length, mtime: disk.version, atime: null, birthtime: null, isFile: true, isDirectory: false, isSymlink: false };
+    }
     case "plugin:fs|read_file":
       readPaths.push(args.path);
       if (args.path.endsWith("missing.pdf")) throw new Error("File not found");
-      return Array.from(fixturePdf((window as any).__pdfVariant || ""));
+      if (!diskPdfs.has(args.path)) diskPdfs.set(args.path, { bytes: fixturePdf((window as any).__pdfVariant || ""), version: 1 });
+      return Array.from(diskPdfs.get(args.path)!.bytes);
     case "is_indexed": return true;
     case "is_audit_enabled": return false;
     case "index_document_cmd":

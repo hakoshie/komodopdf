@@ -12,11 +12,15 @@ import IndexConfirmModal from "./components/IndexConfirmModal";
 import IndexingModal from "./components/IndexingModal";
 import { useReaderStore, getDocumentState, updateDocumentState } from "./state/useReaderStore";
 import { extractAllPages } from "./pdf/extract";
+import { subscribeToSyncTeX } from "./pdf/synctex";
 import "./styles/theme.css";
+import { usePdfReload } from "./hooks/usePdfReload";
 
 const indexingJobs = new WeakMap<object, { cancelled: boolean }>();
 
 function App() {
+  useEffect(() => subscribeToSyncTeX(error => window.alert(`SyncTeX: ${String(error)}`)), []);
+  usePdfReload();
   const { activeModal, fileHash, pdfDoc, aiOpen, setAiOpen } = useReaderStore();
   const aiPanelRef = useRef<ImperativePanelHandle>(null);
 

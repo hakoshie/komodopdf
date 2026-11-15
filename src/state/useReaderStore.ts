@@ -31,6 +31,9 @@ export interface Message {
 }
 
 interface ReaderState {
+  autoReload: boolean;
+  reloading: boolean;
+  reloadError: string | null;
   tabs: { id: string; state: DocumentState }[];
   activeTabId: string | null;
   activateTab: (id: string) => void;
@@ -42,7 +45,7 @@ interface ReaderState {
   fileName: string;
   totalPages: number;
   currentPage: number;
-  navigationRequest: { page: number; id: number };
+  navigationRequest: { page: number; id: number; y?: number };
   scale: number;
   displayScale: number;
   fitMode: "width" | "page" | null;
@@ -112,9 +115,9 @@ interface ReaderState {
 const documentKeys = ["pdfDoc", "fileName", "fileHash", "totalPages", "currentPage", "navigationRequest",
   "scale", "displayScale", "fitMode", "outline", "hasTextMap", "selection", "selectionQuads", "outlineOpen",
   "aiOpen", "indexState", "indexProgress", "messages", "conversationId", "chatHistoryReady", "streaming",
-  "activeHighlight", "pendingQuestion", "activeModal", "chatDraft", "chatTextZoom", "scrollAnchor"] as const;
+  "activeHighlight", "pendingQuestion", "activeModal", "chatDraft", "chatTextZoom", "scrollAnchor", "reloading", "reloadError"] as const;
 type DocumentState = Pick<ReaderState, typeof documentKeys[number]>;
-function snapshot(state: ReaderState): DocumentState {
+export function snapshot(state: DocumentState): DocumentState {
   return Object.fromEntries(documentKeys.map((key) => [key, state[key]])) as DocumentState;
 }
 
@@ -130,6 +133,9 @@ export function updateDocumentState(doc: PDFDocumentProxy, patch: Partial<Docume
 }
 
 export const useReaderStore = create<ReaderState>((set, get) => ({
+  autoReload: true,
+  reloading: false,
+  reloadError: null,
   tabs: [],
   activeTabId: null,
   chatDraft: "",
@@ -201,6 +207,8 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
       const tabs = previous.tabs.map((tab) => tab.id === previous.activeTabId ? { ...tab, state: snapshot(previous) } : tab);
       set({
         pdfDoc: doc,
+        reloading: false,
+        reloadError: null,
         fileName,
         fileHash,
         totalPages: doc.numPages,
@@ -231,6 +239,8 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
     } else {
       set({
         tabs: [],
+        reloading: false,
+        reloadError: null,
         activeTabId: null,
         chatDraft: "",
         chatTextZoom: 1,

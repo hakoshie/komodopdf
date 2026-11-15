@@ -6,6 +6,7 @@ mod open_requests;
 mod portable;
 mod rag;
 mod secrets;
+mod synctex;
 #[cfg(target_os = "windows")]
 mod windows_identity;
 #[cfg(target_os = "windows")]
@@ -727,6 +728,13 @@ fn open_models_folder_cmd(app: tauri::AppHandle, model_id: Option<String>) -> Re
 // The event is a wake-up; the managed queue remains authoritative even before
 // the webview (or other plugins) is ready.
 fn queue_open_requests(app: &tauri::AppHandle, args: Vec<String>, cwd: &std::path::Path) {
+    if args.iter().any(|arg| arg == "--forward-search") {
+        if let Some(request) = synctex::from_args(&args, cwd) {
+            app.state::<synctex::Requests>().0.lock().unwrap().push_back(request);
+            let _ = app.emit_to("main", "synctex-requested", ());
+        } else { log::warn!("Invalid --forward-search arguments; expected SOURCE LINE PDF"); }
+        return;
+    }
     let paths = open_requests::pdf_paths(args, cwd)
         .into_iter()
         .filter_map(|path| path.to_str().map(str::to_owned))
@@ -751,13 +759,20 @@ fn take_pdf_open_requests(
     Ok(paths)
 }
 
+#[tauri::command]
+fn take_synctex_requests(app: tauri::AppHandle, state: tauri::State<'_, synctex::Requests>) -> Result<Vec<synctex::ForwardRequest>, String> {
+    let requests: Vec<_> = state.0.lock().unwrap().drain(..).collect();
+    for request in &requests { app.fs_scope().allow_file(&request.pdf).map_err(|e| e.to_string())?; }
+    Ok(requests)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let context = tauri::generate_context!();
     #[cfg(target_os = "windows")]
     windows_identity::set_app_id(&context.config().identifier)
         .expect("Failed to initialise Windows taskbar identity");
-    let builder = tauri::Builder::default().manage(open_requests::OpenRequests::default());
+    let builder = tauri::Builder::default().manage(open_requests::OpenRequests::default()).manage(synctex::Requests::default());
     // Register first so a second process exits before opening the DB or key store.
     #[cfg(target_os = "windows")]
     let builder = {
@@ -806,6 +821,9 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            take_synctex_requests,
+            synctex::synctex_forward,
+            synctex::synctex_inverse,
             take_pdf_open_requests,
             set_api_key,
             has_api_key,

@@ -4,6 +4,8 @@ import { useReaderStore } from "../state/useReaderStore";
 import { renderPageToCanvas } from "../pdf/pageRender";
 import { buildTextLayer } from "../pdf/textLayer";
 import { useCtrlWheelZoom } from "../hooks/useCtrlWheelZoom";
+import { inverseSearch } from "../pdf/synctex";
+import { preparedPageSizes } from "../pdf/pageSizes";
 
 interface PageSize { width: number; height: number }
 
@@ -61,7 +63,13 @@ const PdfPageView = memo(function PdfPageView({ pdfDoc, pageNum, scale, size, ro
   }, [highlight]);
 
   return (
-    <div ref={wrapperRef} style={{ position: "relative", width: size.width * scale, height: size.height * scale,
+    <div ref={wrapperRef} title="Ctrl+double-click to open the TeX source in VS Code" onDoubleClick={(event) => {
+      if (!event.ctrlKey && !event.metaKey) return;
+      event.preventDefault();
+      const bounds = event.currentTarget.getBoundingClientRect();
+      void inverseSearch(pageNum, event.clientX - bounds.left, event.clientY - bounds.top, scale)
+        .catch(error => window.alert(`SyncTeX: ${String(error)}`));
+    }} style={{ position: "relative", width: size.width * scale, height: size.height * scale,
       margin: "0 auto", boxShadow: "0 2px 8px rgba(0,0,0,0.2)", background: "var(--page-bg)" }}>
       <canvas ref={canvasRef} style={{ display: "block", width: "100%", height: "100%" }} />
       <div ref={textRef} className="textLayer pdf-text-layer" onMouseUp={() => {
@@ -122,7 +130,8 @@ export default function ReaderPane() {
     return () => { cancelled = true; };
   }, [pdfDoc]);
 
-  const ready = layout?.doc === pdfDoc;
+  const pageSizes = (pdfDoc && preparedPageSizes.get(pdfDoc)) || (layout?.doc === pdfDoc ? layout?.pages : undefined);
+  const ready = !!pageSizes;
   useEffect(() => {
     const container = scrollRef.current;
     if (!container) return;
@@ -146,7 +155,7 @@ export default function ReaderPane() {
     return () => { observer.disconnect(); cancelAnimationFrame(resizeFrame); };
   }, [pdfDoc, ready]);
 
-  const currentSize = ready ? layout.pages[currentPage - 1] : undefined;
+  const currentSize = pageSizes?.[currentPage - 1];
   const displayScale = currentSize && bounds.width ? fittedScale(currentSize, bounds, fitMode, scale) : null;
   useEffect(() => {
     if (displayScale !== null) useReaderStore.getState().setDisplayScale(displayScale);
@@ -166,6 +175,10 @@ export default function ReaderPane() {
       const page = anchor ? pages[anchor.page - 1] : undefined;
       top = page && anchor ? page.top + anchor.fraction * page.height - 16
         : (pages[state.currentPage - 1]?.top ?? 16) - 16;
+      if (!anchor && navigation.y !== undefined) {
+        const pageSize = pageSizes?.[navigation.page - 1];
+        if (pageSize) top += navigation.y * fittedScale(pageSize, bounds, fitMode, scale) - container.clientHeight * 0.3;
+      }
     } else {
       // Preserve the same point within the page when the outline, pane size or zoom changes.
       const oldTop = positionRef.current.top + 16;
@@ -228,7 +241,7 @@ export default function ReaderPane() {
     <div ref={scrollRef} className="pdf-pages" onScroll={handleScroll} aria-label="PDF pages" style={{ position: "relative", height: "100%",
       overflow: "auto", scrollbarGutter: "stable", background: "var(--canvas-bg)", padding: "16px", overflowAnchor: "none" }}>
       {error ? <p role="alert">Could not load PDF pages: {error}</p> : !ready ? <p>Loading pages…</p> :
-        layout.pages.map((size, index) => {
+        pageSizes!.map((size, index) => {
           const renderScale = fittedScale(size, bounds, fitMode, scale);
           return <div key={index} data-page={index + 1} style={{ marginBottom: 16, width: "max-content", minWidth: "100%" }}>
             {bounds.width > 0 && scrollRef.current && <PdfPageView pdfDoc={pdfDoc} pageNum={index + 1}

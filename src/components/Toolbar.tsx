@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { useReaderStore } from "../state/useReaderStore";
 import { openPdfPath } from "../pdf/openPdf";
 import { subscribeToPdfOpenRequests } from "../pdf/openRequests";
+import { reloadPdf } from "../pdf/reloadPdf";
 
 export default function Toolbar() {
   const {
@@ -15,6 +16,9 @@ export default function Toolbar() {
     toggleOutline,
     aiOpen,
     setAiOpen,
+    autoReload,
+    reloading,
+    reloadError,
   } = useReaderStore();
 
   const hasDoc = totalPages > 0;
@@ -38,6 +42,21 @@ export default function Toolbar() {
   }
 
   useEffect(() => subscribeToPdfOpenRequests(openPath, (error) => setOpenError(String(error))), []);
+
+  function handleReload() {
+    const doc = useReaderStore.getState().pdfDoc;
+    if (doc) void reloadPdf(doc);
+  }
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "F5" && !event.ctrlKey && !event.metaKey && !event.altKey) {
+        event.preventDefault();
+        handleReload();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   async function handleOpen() {
     pendingOpens.current += 1;
@@ -124,6 +143,15 @@ export default function Toolbar() {
         {opening ? "Opening…" : "Open PDF"}
       </button>
       {openError && <span role="alert" title={openError} style={{ color: "#f59e0b", fontSize: 12 }}>Could not open PDF: {openError}</span>}
+      {hasDoc && <>
+        <button onClick={handleReload} disabled={reloading} title="Reload PDF from disk (F5)">
+          {reloading ? "Reloading…" : "Reload"}
+        </button>
+        <label title="Automatically reload after TeX recompiles the PDF" style={{ fontSize: 12, whiteSpace: "nowrap" }}>
+          <input type="checkbox" checked={autoReload} onChange={(event) => useReaderStore.setState({ autoReload: event.target.checked })} /> Auto reload
+        </label>
+        {reloadError && <span role="status" title={reloadError} style={{ color: "#f59e0b", fontSize: 12 }}>Update pending</span>}
+      </>}
 
       {!hasDoc && <div style={{ marginLeft: "auto" }}>{askToggle}</div>}
 
