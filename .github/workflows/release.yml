@@ -8,35 +8,50 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   release:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 22
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache Rust build
-        uses: swatinem/rust-cache@v2
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
         with:
           workspaces: './src-tauri -> target'
-
-      - name: Install frontend dependencies
-        run: npm ci
-
-      - name: Build & publish release
-        uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Validate release version
+        run: node scripts/check-release-version.mjs
+      - name: Install dependencies and matching ONNX runtime
+        shell: pwsh
+        run: ./scripts/setup-windows.ps1
+      - name: Test frontend
+        run: npm test
+      - name: Build Windows installers and portable ZIP
+        shell: pwsh
+        run: ./scripts/build-release.ps1
+      - name: Preserve build artifacts
+        uses: actions/upload-artifact@v4
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: 'Komodo PDF ${{ github.ref_name }}'
-          releaseBody: 'See the assets below to download and install.'
-          releaseDraft: true
-          prerelease: false
+          name: windows-release-${{ github.ref_name }}
+          path: release/*/*.*
+          if-no-files-found: error
+      - name: Create draft release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $assets = @(Get-ChildItem "release/$version" -File | ForEach-Object FullName)
+          gh release view "$env:GITHUB_REF_NAME" --json isDraft > existing-release.json 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            if (!(Get-Content existing-release.json -Raw | ConvertFrom-Json).isDraft) { throw 'Refusing to overwrite a published release' }
+            gh release upload "$env:GITHUB_REF_NAME" @assets --clobber
+          } else {
+            gh release create "$env:GITHUB_REF_NAME" @assets --verify-tag --draft --title "Komodo PDF $env:GITHUB_REF_NAME" --notes 'Windows x64 installers and portable ZIP. Unsigned binaries; verify before publishing.'
+          }
+          if ($LASTEXITCODE -ne 0) { throw 'Draft release creation/upload failed' }

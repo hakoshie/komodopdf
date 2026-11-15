@@ -20,4 +20,11 @@ const cargo = readFileSync(cargoPath, 'utf8')
   .replace(/^version = ".*"$/m, `version = "${version}"`);
 writeFileSync(cargoPath, cargo);
 
-console.log(`Synced version ${version} -> tauri.conf.json, Cargo.toml`);
+const lockPath = join(root, 'src-tauri', 'Cargo.lock');
+const lock = readFileSync(lockPath, 'utf8');
+if (!/name = "komodo-pdf"\r?\nversion = "[^"]+"/.test(lock)) {
+  throw new Error('komodo-pdf package missing from Cargo.lock');
+}
+writeFileSync(lockPath, lock.replace(/(name = "komodo-pdf"\r?\nversion = )"[^"]+"/, `$1"${version}"`));
+
+console.log(`Synced version ${version} -> tauri.conf.json, Cargo.toml, Cargo.lock (stage all three before tagging)`);

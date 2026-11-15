@@ -12,6 +12,8 @@ $projectRoot = Split-Path -Parent $PSScriptRoot
 $version = (Get-Content -LiteralPath (Join-Path $projectRoot 'package.json') -Raw | ConvertFrom-Json).version
 $productName = "Komodo PDF"
 $exeName = "komodo-pdf.exe"
+node (Join-Path $PSScriptRoot 'check-release-version.mjs')
+if ($LASTEXITCODE -ne 0) { throw 'Release version validation failed' }
 
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "Komodo PDF Windows Release Builder" -ForegroundColor Cyan
@@ -40,12 +42,10 @@ if ($LASTEXITCODE -ne 0) { throw "Tauri build failed" }
 # 2. Prepare release directory
 # ---------------------------------------------------------------------------
 Write-Host "`n[2/4] Preparing release directory..." -ForegroundColor Yellow
-$releaseDir = Join-Path $projectRoot "release"
+$releaseDir = Join-Path $projectRoot "release\$version"
 $portableDir = Join-Path $releaseDir "portable"
 if (Test-Path $releaseDir) {
-    $resolvedRelease = [System.IO.Path]::GetFullPath($releaseDir)
-    if ($resolvedRelease -ne [System.IO.Path]::GetFullPath((Join-Path $projectRoot 'release'))) { throw 'Unexpected release output path' }
-    Remove-Item -LiteralPath $resolvedRelease -Recurse -Force
+    throw "Output already exists: $releaseDir. Preserve or move it before rebuilding this version."
 }
 New-Item -ItemType Directory -Path $releaseDir | Out-Null
 New-Item -ItemType Directory -Path $portableDir | Out-Null
@@ -58,12 +58,12 @@ Write-Host "`n[3/4] Collecting setup installers..." -ForegroundColor Yellow
 $msiDir = [System.IO.Path]::Combine($projectRoot, "src-tauri", "target", "release", "bundle", "msi")
 $nsisDir = [System.IO.Path]::Combine($projectRoot, "src-tauri", "target", "release", "bundle", "nsis")
 
-$msiFile = Get-ChildItem -Path $msiDir -Filter "*.msi" | Select-Object -First 1
+$msiFile = Get-Item -LiteralPath (Join-Path $msiDir "Komodo PDF_${version}_x64_en-US.msi") -ErrorAction SilentlyContinue
 if (-not $msiFile) { throw "MSI installer not found in $msiDir" }
 Copy-Item $msiFile.FullName -Destination (Join-Path $releaseDir "Komodo-PDF-$version-x64.msi")
 Write-Host "  -> MSI: $($msiFile.Name)"
 
-$nsisFile = Get-ChildItem -Path $nsisDir -Filter "*.exe" | Select-Object -First 1
+$nsisFile = Get-Item -LiteralPath (Join-Path $nsisDir "Komodo PDF_${version}_x64-setup.exe") -ErrorAction SilentlyContinue
 if (-not $nsisFile) { throw "NSIS installer not found in $nsisDir" }
 Copy-Item $nsisFile.FullName -Destination (Join-Path $releaseDir "Komodo-PDF-$version-x64-Setup.exe")
 Write-Host "  -> NSIS: $($nsisFile.Name)"
